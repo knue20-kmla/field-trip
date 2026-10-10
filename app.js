@@ -429,6 +429,8 @@ function renderAdminDetail() {
   const done = isApproved(rec);
   $("#pdf-selected-app").disabled = !done;
   $("#pdf-selected-report").disabled = !done || !r.submitted;
+  const rejectedNow = apprOf(rec).rejected;
+  $("#delete-rejected").hidden = !(rejectedNow && (myStaff?.canManage || (isHomeroomStaff() && canStaffReadRec(rec))));
   $("#pdf-hint").textContent = done ? "" : "PDF는 4단계 결재가 모두 끝난 뒤에 저장할 수 있습니다. 미리보기는 언제든 볼 수 있습니다.";
 }
 async function saveApproval(rec, patch) {
@@ -454,6 +456,26 @@ async function toggleApproval(index) {
 async function rejectRecord() {
   const rec = selectedAdminRec(); if (!rec) return;
   await guarded($("#reject-record"), async () => { await saveApproval(rec, { rejected: true, note: $("#admin-note").value.trim() }); toast("반려 처리했습니다."); });
+}
+async function deleteRejectedRecord() {
+  const rec = selectedAdminRec(); if (!rec) return;
+  if (!apprOf(rec).rejected) return toast("반려된 신청서만 삭제할 수 있습니다.");
+  const btn = $("#delete-rejected");
+  if (btn.dataset.confirm !== "1") {
+    btn.dataset.confirm = "1"; btn.textContent = "한 번 더 누르면 삭제됩니다";
+    setTimeout(() => { btn.dataset.confirm = ""; btn.textContent = "반려 신청서 삭제"; }, 4000);
+    return;
+  }
+  btn.dataset.confirm = ""; btn.textContent = "반려 신청서 삭제";
+  await guarded(btn, async () => {
+    // 규칙이 신청서와 결재 기록을 확인하므로 사진 → 신청서 → 결재 기록 순서로 지운다.
+    await deleteDoc(doc(db, "photos", rec.id)).catch(() => {});
+    await deleteDoc(doc(db, "applications", rec.id));
+    await deleteDoc(doc(db, "approvals", rec.id)).catch(() => {});
+    photoCache.delete(keyOf(rec));
+    selectedAdminKey = null;
+    toast("반려된 신청서를 삭제했습니다.");
+  });
 }
 async function saveNote() {
   const rec = selectedAdminRec(); if (!rec) return;
@@ -685,6 +707,7 @@ $("#preview-modal").addEventListener("click", (e) => { if (e.target.id === "prev
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#preview-modal").hidden = true; });
 $("#save-note").addEventListener("click", saveNote);
 $("#reject-record").addEventListener("click", rejectRecord);
+$("#delete-rejected").addEventListener("click", deleteRejectedRecord);
 
 
 /* ---------- 로그인과 시작 ---------- */

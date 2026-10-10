@@ -61,6 +61,14 @@ service cloud.firestore {
         && get(p).data.steps[3].approved == true;
     }
     // 내 단계(my) 외의 칸은 건드리지 못한다
+    // 현재 개정번호 기준으로 반려된 신청서인지
+    function isRejected(appId) {
+      let p = /databases/$(database)/documents/approvals/$(appId);
+      return exists(p)
+        && get(p).data.rejected == true
+        && exists(/databases/$(database)/documents/applications/$(appId))
+        && get(p).data.appRev == get(/databases/$(database)/documents/applications/$(appId)).data.rev;
+    }
     function keep(o, n, my, i) { return i == my || n[i] == o[i]; }
     function othersUnchanged(o, n, my) {
       return keep(o, n, my, 0) && keep(o, n, my, 1) && keep(o, n, my, 2) && keep(o, n, my, 3);
@@ -145,7 +153,10 @@ service cloud.firestore {
             && request.resource.data.application == resource.data.application)
         );
 
-      allow delete: if (isOwner(resource.data) && !fullyApproved(appId, resource.data.rev)) || isManager();
+      allow delete: if (isOwner(resource.data) && !fullyApproved(appId, resource.data.rev))
+        || isManager()
+        // 담임은 본인 반 학생의 반려된 신청서를 지울 수 있다.
+        || (homeroomMatches(resource.data) && isRejected(appId));
     }
 
     // ---- 결재 기록: 교직원만 쓰고, 각자 자기 단계 칸만 바꾼다 ----
@@ -174,7 +185,8 @@ service cloud.firestore {
               ? othersUnchanged(resource.data.steps, request.resource.data.steps, myStaff().step)
               : othersNotApproved(request.resource.data.steps, myStaff().step));
 
-      allow delete: if isManager();
+      allow delete: if isManager()
+        || (isHomeroomTeacher() && resource.data.homeroomKey == myStaff().homeroomKey && resource.data.rejected == true);
     }
 
     match /photos/{appId} {
@@ -185,7 +197,8 @@ service cloud.firestore {
         && request.resource.data.data.size() < 400000
         && exists(/databases/$(database)/documents/applications/$(appId))
         && get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid == request.auth.uid;
-      allow delete: if isManager() || isOwner(resource.data);
+      allow delete: if isManager() || isOwner(resource.data)
+        || (isHomeroomTeacher() && canReadApplicationId(appId) && isRejected(appId));
     }
   }
 }
