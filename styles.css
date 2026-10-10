@@ -28,6 +28,7 @@
   --shadow: 0 10px 30px rgba(71, 48, 32, 0.08);
   --rail-top: #1c2536;
   --rail-bottom: #10151e;
+  --logo-hair: rgba(21, 28, 38, 0.10);
   --font: "Pretendard", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   color-scheme: light;
 }
@@ -39,7 +40,7 @@
     --accent: #f08a68; --accent-ink: #f4a98f; --accent-soft: rgba(240, 138, 104, 0.16);
     --ok: #6fd0ae; --ok-bg: #173329; --warn: #f0be7a; --warn-bg: #382a15; --danger: #f4a0a8; --danger-bg: #3b1f24;
     --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-    --rail-top: #121a28; --rail-bottom: #0a0e15;
+    --rail-top: #121a28; --rail-bottom: #0a0e15; --logo-hair: rgba(255, 255, 255, 0.28);
     color-scheme: dark;
   }
 }
@@ -50,7 +51,7 @@
   --accent: #f08a68; --accent-ink: #f4a98f; --accent-soft: rgba(240, 138, 104, 0.16);
   --ok: #6fd0ae; --ok-bg: #173329; --warn: #f0be7a; --warn-bg: #382a15; --danger: #f4a0a8; --danger-bg: #3b1f24;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --rail-top: #121a28; --rail-bottom: #0a0e15;
+  --rail-top: #121a28; --rail-bottom: #0a0e15; --logo-hair: rgba(255, 255, 255, 0.28);
   color-scheme: dark;
 }
 
@@ -68,8 +69,10 @@ h3 { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
 .ws-top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 50; min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap;
   padding: 10px clamp(14px, 2.4vw, 28px); background: var(--topbar); border-bottom: 1px solid var(--line); }
 .ws-brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.logo-disc { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px var(--accent), 0 4px 14px rgba(71, 48, 32, 0.12); }
-.logo-disc img { width: 88%; height: 88%; object-fit: contain; display: block; }
+/* 학교 로고: 로고 자체의 원 테두리를 살리고, 바깥 테두리 대신 가는 윤곽선과 부드러운 그림자만 쓴다 */
+.logo-disc { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 1px var(--logo-hair), 0 1px 2px rgba(21, 28, 38, 0.10), 0 6px 16px rgba(21, 28, 38, 0.14); }
+.logo-disc img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .logo-lg { width: 104px; height: 104px; }
 .brand-text { display: grid; gap: 1px; min-width: 0; }
 .brand-school { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: var(--accent-ink); }
