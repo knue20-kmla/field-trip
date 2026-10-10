@@ -703,12 +703,18 @@ function setView(name) {
   $$("#role-switch .role-button").forEach((x) => x.classList.toggle("active", x.dataset.view === name));
   $$(".view").forEach((v) => v.classList.toggle("active", v.id === `${name}-view`));
 }
+let lastLoginMessage = "";
+async function rejectLogin(message) {
+  lastLoginMessage = message;
+  await signOut(auth);
+  showSignedOut(message);
+}
 function showSignedOut(message = "") {
   unsubscribers.forEach((u) => u()); unsubscribers = [];
   recs = []; apprById = new Map(); staffList = []; studentList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
-  $("#pw-modal").hidden = true;
+  $("#pw-modal").hidden = true; $("#profile-modal").hidden = true;
   $("#login-view").hidden = false; $("#app-shell").hidden = true; $("#user-box").hidden = true;
-  $("#login-error").textContent = message;
+  $("#login-error").textContent = message || lastLoginMessage;
 }
 function ingestRecords(snap) {
   recs = snap.docs.map((d) => {
@@ -751,12 +757,14 @@ async function submitPassword(event) {
 /* 교직원 계정 관리 (관리 권한이 있는 사람만) */
 function renderStaffList() {
   const list = $("#staff-list");
-  list.innerHTML = staffList.length ? staffList.map((s) => `
+  const pending = staffList.filter((s) => s.approved === false).length;
+  $('#role-switch [data-view="accounts"]').textContent = pending ? `계정 관리 (승인 대기 ${pending})` : "계정 관리";
+  list.innerHTML = staffList.length ? [...staffList].sort((a, b) => (b.approved === false) - (a.approved === false)).map((s) => `
     <div class="staff-item">
       <div><strong>${escapeHtml(s.name)} · ${escapeHtml(approvalSteps[s.step] ?? "")}</strong>
-        <span>아이디 ${escapeHtml(s.id)}${s.step === 0 ? ` · ${escapeHtml(s.grade ?? "-")}학년 ${escapeHtml(s.classroom ?? "-")}반` : ""}${s.canManage ? " · 계정 관리 권한" : ""}${s.mustChange ? " · 비밀번호 변경 전" : ""}</span></div>
+        <span>아이디 ${escapeHtml(s.id)}${s.step === 0 ? ` · ${escapeHtml(s.grade ?? "-")}학년 ${escapeHtml(s.classroom ?? "-")}반` : ""}${s.canManage ? " · 계정 관리 권한" : ""}${s.mustChange ? " · 비밀번호 변경 전" : ""}${s.approved === false ? " · 승인 대기 (직접 가입)" : ""}</span></div>
       <div class="list-actions">
-        ${s.uid === myUid ? "" : `<button class="ghost-button" data-reset-staff="${escapeHtml(s.uid)}" type="button">변경 요청</button><button class="ghost-button" data-del="${escapeHtml(s.uid)}" type="button">삭제</button>`}
+        ${s.approved === false ? `<button class="primary-button" data-approve-staff="${escapeHtml(s.uid)}" type="button">승인</button><button class="ghost-button" data-del="${escapeHtml(s.uid)}" type="button">거절</button>` : s.uid === myUid ? "" : `<button class="ghost-button" data-reset-staff="${escapeHtml(s.uid)}" type="button">변경 요청</button><button class="ghost-button" data-del="${escapeHtml(s.uid)}" type="button">삭제</button>`}
       </div>
     </div>`).join("") : `<div class="empty-state">등록된 교직원이 없습니다.</div>`;
 }
@@ -768,7 +776,8 @@ function renderStudentList() {
         <span>${escapeHtml(s.email ?? "")}${s.phone ? ` · ${escapeHtml(s.phone)}` : ""}</span></div>
       <div class="list-actions">
         <button class="ghost-button" data-reset-student="${escapeHtml(s.uid)}" type="button">초기화 안내</button>
-        <button class="ghost-button" data-del-student="${escapeHtml(s.uid)}" type="button">삭제</button>
+        <button class="ghost-button" data-del-records="${escapeHtml(s.uid)}" type="button">신청 기록 삭제</button>
+        <button class="ghost-button" data-del-student="${escapeHtml(s.uid)}" type="button">등록 삭제</button>
       </div>
     </div>`).join("") : `<div class="empty-state">등록된 학생이 없습니다.</div>`;
 }
@@ -824,13 +833,13 @@ async function signupTeacher(event) {
     const cred = await createUserWithEmailAndPassword(auth, staffEmail(id), pw);
     await setDoc(doc(db, "staff", cred.user.uid), {
       id, name, step: 0, grade, classroom, homeroomKey: `${grade}-${classroom}`,
-      canManage: false, mustChange: false, selfRegistered: true, createdAt: new Date().toISOString(),
+      canManage: false, mustChange: false, approved: false, selfRegistered: true, createdAt: new Date().toISOString(),
     });
     $("#teacher-signup").reset();
     $("#staff-password").value = "";
     teacherSignupInProgress = false;
-    await enterApp(cred.user);
-    toast(`${grade}학년 ${classroom}반 담임 권한으로 가입했습니다.`);
+    await rejectLogin("가입 신청이 접수되었습니다. 전체 관리자가 승인하면 로그인할 수 있습니다.");
+    toast("가입 신청을 접수했습니다. 관리자 승인을 기다려 주세요.");
   } catch (e) {
     teacherSignupInProgress = false;
     console.error(e);
@@ -877,6 +886,78 @@ async function deleteStaff(uid, button) {
   try { await deleteDoc(doc(db, "staff", uid)); toast("교직원 등록을 삭제했습니다. 이 계정은 더 이상 결재할 수 없습니다."); }
   catch (e) { console.error(e); toast(explainError(e)); }
 }
+/* 등록 정보가 없는 계정(삭제되었거나 가입이 중간에 끊긴 경우)이 정보를 다시 입력 */
+let profileUser = null;
+function openProfileModal(user) {
+  profileUser = user;
+  const isStaffAccount = (user.email ?? "").endsWith(`@${STAFF_DOMAIN}`);
+  $("#profile-form").reset(); $("#profile-error").textContent = "";
+  $("#profile-title").textContent = isStaffAccount ? "교직원 등록 다시 신청" : "학생 등록 정보 입력";
+  $("#profile-note").textContent = isStaffAccount
+    ? "교직원 등록이 없는 계정입니다. 담임 정보를 입력해 다시 신청하면 전체 관리자의 승인 후 사용할 수 있습니다."
+    : "이 계정은 로그인할 수 있지만 학생 등록 정보가 없습니다. 아래 정보를 입력해 등록을 완료하세요.";
+  $("#profile-phone-row").hidden = isStaffAccount;
+  $("#profile-phone").required = !isStaffAccount;
+  $("#profile-modal").hidden = false;
+  $("#profile-name").focus();
+}
+async function submitProfile(event) {
+  event.preventDefault();
+  const user = profileUser; if (!user) return;
+  const name = $("#profile-name").value.trim(), grade = $("#profile-grade").value.trim(), classroom = $("#profile-classroom").value.trim();
+  const phone = $("#profile-phone").value.trim();
+  const isStaffAccount = (user.email ?? "").endsWith(`@${STAFF_DOMAIN}`);
+  const err = $("#profile-error");
+  if (!name || !grade || !classroom || (!isStaffAccount && !phone)) { err.textContent = "모든 항목을 입력하세요."; return; }
+  const btn = $("#profile-save"); btn.disabled = true;
+  try {
+    if (isStaffAccount) {
+      await setDoc(doc(db, "staff", user.uid), {
+        id: user.email.split("@")[0], name, step: 0, grade, classroom, homeroomKey: `${grade}-${classroom}`,
+        canManage: false, mustChange: false, approved: false, selfRegistered: true, createdAt: new Date().toISOString(),
+      });
+      $("#profile-modal").hidden = true;
+      await rejectLogin("가입 신청이 접수되었습니다. 전체 관리자가 승인하면 로그인할 수 있습니다.");
+    } else {
+      await setDoc(doc(db, "students", user.uid), { name, grade, classroom, phone, email: user.email, createdAt: new Date().toISOString() });
+      $("#profile-modal").hidden = true;
+      profileUser = null;
+      await enterApp(user);
+      toast("학생 등록을 완료했습니다.");
+    }
+  } catch (e) { console.error(e); err.textContent = explainError(e); }
+  finally { btn.disabled = false; }
+}
+
+/* 학생의 신청 기록(신청서, 승인 기록, 사진) 삭제 - 전체 관리자 */
+async function deleteStudentRecords(uid, button) {
+  const targets = recs.filter((r) => r.uid === uid);
+  if (!targets.length) { toast("삭제할 신청 기록이 없습니다."); return; }
+  if (button.dataset.confirm !== "1") {
+    button.dataset.confirm = "1"; button.textContent = `${targets.length}건 삭제 확인`;
+    setTimeout(() => { button.dataset.confirm = ""; button.textContent = "신청 기록 삭제"; }, 4000);
+    return;
+  }
+  button.disabled = true;
+  try {
+    for (const r of targets) {
+      await deleteDoc(doc(db, "approvals", r.id)).catch(() => {});
+      await deleteDoc(doc(db, "photos", r.id)).catch(() => {});
+      await deleteDoc(doc(db, "applications", r.id));
+      photoCache.delete(keyOf(r));
+    }
+    toast(`신청 기록 ${targets.length}건을 삭제했습니다.`);
+  } catch (e) { console.error(e); toast(explainError(e)); }
+  finally { button.disabled = false; button.dataset.confirm = ""; button.textContent = "신청 기록 삭제"; }
+}
+async function approveStaff(uid, button) {
+  const s = staffList.find((item) => item.uid === uid);
+  button.disabled = true;
+  try {
+    await updateDoc(doc(db, "staff", uid), { approved: true });
+    toast(`${s?.name ?? "교직원"} 선생님의 가입을 승인했습니다.`);
+  } catch (e) { console.error(e); toast(explainError(e)); button.disabled = false; }
+}
 async function requirePasswordChange(uid, button) {
   if (button.dataset.confirm !== "1") {
     button.dataset.confirm = "1"; button.textContent = "한 번 더 누르면 요청";
@@ -895,12 +976,12 @@ function showStudentPasswordGuide(uid) {
 async function deleteStudent(uid, button) {
   if (button.dataset.confirm !== "1") {
     button.dataset.confirm = "1"; button.textContent = "한 번 더 누르면 삭제";
-    setTimeout(() => { button.dataset.confirm = ""; button.textContent = "삭제"; }, 4000);
+    setTimeout(() => { button.dataset.confirm = ""; button.textContent = "등록 삭제"; }, 4000);
     return;
   }
   try {
     await deleteDoc(doc(db, "students", uid));
-    toast("학생 등록을 삭제했습니다. Authentication 사용자는 Firebase 콘솔에서 별도로 삭제할 수 있습니다.");
+    toast("학생 등록을 삭제했습니다. 학생이 다시 로그인하면 등록 정보를 새로 입력할 수 있습니다. 신청 기록은 '신청 기록 삭제'로 따로 지웁니다.");
   } catch (e) { console.error(e); toast(explainError(e)); }
 }
 
@@ -917,16 +998,20 @@ async function enterApp(user) {
         getDoc(doc(db, "students", myUid)),
       ]);
     } catch (e) { console.error(e); }
+    if (staffSnap?.exists() && staffSnap.data().approved === false) {
+      await rejectLogin("전체 관리자의 승인을 기다리는 계정입니다. 승인된 뒤에 로그인할 수 있습니다.");
+      return;
+    }
     if (staffSnap?.exists()) {
       myStaff = staffSnap.data(); myStudent = null; myEmail = ""; isAdmin = true;
     } else if (studentSnap?.exists()) {
       myStaff = null; myStudent = studentSnap.data(); myEmail = myStudent.email ?? user.email ?? ""; isAdmin = false;
     } else {
-      await signOut(auth); showSignedOut("등록되지 않은 계정입니다. 학생은 회원가입을 먼저 진행해 주세요.");
+      openProfileModal(user);
       return;
     }
   } else {
-    await signOut(auth); showSignedOut("이메일과 비밀번호로 로그인해 주세요.");
+    await rejectLogin("이메일과 비밀번호로 로그인해 주세요.");
     return;
   }
   $("#login-view").hidden = true; $("#app-shell").hidden = false; $("#user-box").hidden = false;
@@ -1031,14 +1116,18 @@ function start() {
   $("#sign-out").addEventListener("click", () => signOut(auth));
   $("#change-password").addEventListener("click", () => openPasswordModal(false));
   $("#pw-form").addEventListener("submit", submitPassword);
+  $("#profile-form").addEventListener("submit", submitProfile);
+  $("#profile-cancel").addEventListener("click", () => { $("#profile-modal").hidden = true; profileUser = null; rejectLogin(""); });
   $("#pw-cancel").addEventListener("click", () => { if (!pwForced) $("#pw-modal").hidden = true; });
   $("#account-form").addEventListener("submit", createAccount);
   $("#staff-list").addEventListener("click", (e) => {
     const del = e.target.closest("button[data-del]"); if (del) deleteStaff(del.dataset.del, del);
     const reset = e.target.closest("button[data-reset-staff]"); if (reset) requirePasswordChange(reset.dataset.resetStaff, reset);
+    const approve = e.target.closest("button[data-approve-staff]"); if (approve) approveStaff(approve.dataset.approveStaff, approve);
   });
   $("#student-list").addEventListener("click", (e) => {
     const del = e.target.closest("button[data-del-student]"); if (del) deleteStudent(del.dataset.delStudent, del);
+    const recDel = e.target.closest("button[data-del-records]"); if (recDel) deleteStudentRecords(recDel.dataset.delRecords, recDel);
     const reset = e.target.closest("button[data-reset-student]"); if (reset) showStudentPasswordGuide(reset.dataset.resetStudent);
   });
   onAuthStateChanged(auth, (user) => { if (user) enterApp(user); else if (!teacherSignupInProgress && !studentSignupInProgress) showSignedOut(); });

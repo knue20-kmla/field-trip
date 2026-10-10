@@ -311,6 +311,22 @@
   </div>
 </div>
 
+<div class="modal" id="profile-modal" hidden role="dialog" aria-modal="true" aria-labelledby="profile-title">
+  <form class="modal-card" id="profile-form">
+    <h2 id="profile-title">등록 정보 입력</h2>
+    <p id="profile-note" class="cell-note"></p>
+    <label class="full" for="profile-name">이름<input id="profile-name" autocomplete="name" required /></label>
+    <label class="full" for="profile-grade">학년<input id="profile-grade" inputmode="numeric" required /></label>
+    <label class="full" for="profile-classroom">반<input id="profile-classroom" inputmode="numeric" required /></label>
+    <label class="full" id="profile-phone-row" for="profile-phone">전화번호<input id="profile-phone" type="tel" autocomplete="tel" /></label>
+    <p id="profile-error" role="alert" class="cell-note"></p>
+    <div class="form-actions">
+      <button class="primary-button" id="profile-save" type="submit">등록</button>
+      <button class="ghost-button" id="profile-cancel" type="button">로그아웃</button>
+    </div>
+  </form>
+</div>
+
 <div class="modal" id="pw-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pw-title">
   <form class="modal-card" id="pw-form">
     <h2 id="pw-title">비밀번호 변경</h2>

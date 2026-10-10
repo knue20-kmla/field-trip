@@ -9,7 +9,8 @@ service cloud.firestore {
     }
     function isStaff() {
       return request.auth != null
-        && exists(/databases/$(database)/documents/staff/$(request.auth.uid));
+        && exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.get('approved', true) == true;
     }
     function isPasswordAuth() {
       return request.auth != null
@@ -86,20 +87,21 @@ service cloud.firestore {
       allow create: if (request.auth != null
               && isPasswordAuth()
               && request.auth.uid == uid
-              && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'selfRegistered', 'createdAt'])
+              && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'approved', 'selfRegistered', 'createdAt'])
               && request.resource.data.step == 0
               && request.resource.data.canManage == false
+              && request.resource.data.approved == false
               && request.resource.data.mustChange == false
               && request.resource.data.grade is string
               && request.resource.data.classroom is string)
         || (isManager()
-              && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'createdAt'])
+              && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'approved', 'createdAt'])
               && request.resource.data.step in [0, 1, 2, 3]);
       allow update: if (request.auth.uid == uid && isStaff()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange'])
               && request.resource.data.mustChange == false)
         || (isManager()
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'step', 'mustChange']));
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'step', 'mustChange', 'approved']));
       allow delete: if isManager() && request.auth.uid != uid;
     }
 
@@ -128,7 +130,7 @@ service cloud.firestore {
             && request.resource.data.application == resource.data.application)
         );
 
-      allow delete: if isOwner(resource.data) && !fullyApproved(appId, resource.data.rev);
+      allow delete: if (isOwner(resource.data) && !fullyApproved(appId, resource.data.rev)) || isManager();
     }
 
     match /approvals/{appId} {
