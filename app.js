@@ -4,7 +4,9 @@ import { getAuth, EmailAuthProvider, onAuthStateChanged, signInWithEmailAndPassw
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js";
+import * as appCfg from "./firebase-config.js";
+const firebaseConfig = appCfg.firebaseConfig;
+const MAIL_ENDPOINT = appCfg.mailEndpoint ?? "";
 
 const approvalSteps = ["담임", "교무부장", "교감", "교장"];
 const STAFF_DOMAIN = "staff.fieldtrip.local";   // 교직원 아이디 → 로그인용 이메일 (실제 메일이 아님)
@@ -34,6 +36,7 @@ let staffList = [];
 let studentList = [];
 let appConfig = null;
 let recs = [];                 // 화면에 보이는 신청 (학생: 내 것, 담당자: 전체)
+let reviewById = new Map();    // 신청서 id -> 결과보고서 검토 {appRev, reportAt, status, note}
 let apprById = new Map();      // 신청서 id -> {appRev, steps, rejected, note}
 let loaded = false;
 let unsubscribers = [];
@@ -128,14 +131,27 @@ function apprOf(rec) {
   return { steps: approvalSteps.map((name) => ({ name, approved: false, at: "" })), rejected: false, note: "" };
 }
 const isApproved = (rec) => { const a = apprOf(rec); return !a.rejected && a.steps.every((s) => s.approved); };
+function reviewOf(rec) {
+  const it = reviewById.get(rec.id);
+  if (it && it.appRev === rec.rev && it.reportAt === (rec.report?.submittedAt ?? "")) return { status: it.status, note: it.note ?? "" };
+  return { status: rec.report?.submitted ? "pending" : "none", note: "" };
+}
+function reviewLabel(rec) {
+  const s = reviewOf(rec).status;
+  return s === "approved" ? "승인" : s === "rejected" ? "반려" : s === "pending" ? "검토 대기" : "-";
+}
 function statusLabel(rec) {
   if (apprOf(rec).rejected) return "반려";
-  if (rec.report?.submitted) return "보고서 제출";
+  if (rec.report?.submitted) {
+    const s = reviewOf(rec).status;
+    return s === "approved" ? "보고서 승인" : s === "rejected" ? "보고서 반려" : "보고서 검토 중";
+  }
   if (isApproved(rec)) return "승인 완료";
   return "검토 중";
 }
 function statusClass(rec) {
   if (apprOf(rec).rejected) return "rejected";
+  if (rec.report?.submitted) { const s = reviewOf(rec).status; return s === "approved" ? "approved" : s === "rejected" ? "rejected" : "review"; }
   return isApproved(rec) ? "approved" : "review";
 }
 const myRecs = () => recs.filter((r) => r.uid === myUid);
@@ -247,7 +263,7 @@ function renderReportSelector() {
   sel.value = chosen?.id ?? "";
   const key = `${chosen?.id ?? ""}|${chosen?.report?.submittedAt ?? ""}`;
   if (key !== reportFilledKey) { reportFilledKey = key; pendingPhoto = null; fillReportForm(chosen); }
-  setReportEnabled(Boolean(chosen));
+  setReportEnabled(Boolean(chosen), chosen);
 }
 function fillReportForm(rec) {
   const r = rec?.report ?? emptyReport();
@@ -281,12 +297,24 @@ async function loadPhoto(rec) {
     return v;
   } catch (e) { return null; }
 }
-function setReportEnabled(enabled) {
+function setReportEnabled(enabled, rec = null) {
   const lock = $("#report-lock");
-  lock.textContent = enabled ? "승인 완료된 신청서입니다. 결과보고서를 작성할 수 있습니다." : "담당자 결재가 모두 완료된 신청서만 결과보고서를 작성할 수 있습니다.";
-  lock.classList.toggle("ready", enabled);
-  $("#report-scroll").classList.toggle("form-disabled", !enabled);
-  $$("#report-form textarea, #report-form input[type='radio'], #report-form input[type='file'], #submit-report, #pdf-report, #excel-report").forEach((n) => { n.disabled = !enabled; });
+  const rv = rec ? reviewOf(rec) : { status: "none", note: "" };
+  const approved = enabled && rv.status === "approved";
+  const editable = enabled && !approved;
+  let msg = "담당자 결재가 모두 완료된 신청서만 결과보고서를 작성할 수 있습니다.", cls = "notice";
+  if (enabled) {
+    if (rv.status === "approved") { msg = "담임 선생님이 결과보고서를 승인했습니다. 더 이상 수정할 수 없습니다."; cls = "notice ready"; }
+    else if (rv.status === "rejected") { msg = `결과보고서가 반려되었습니다. 내용을 고쳐 다시 제출하세요.${rv.note ? `\n담임 메모: ${rv.note}` : ""}`; cls = "notice danger"; }
+    else if (rv.status === "pending") { msg = "결과보고서를 제출했습니다. 담임 선생님의 검토를 기다리는 중입니다. 검토 전에는 고쳐서 다시 제출할 수 있습니다."; cls = "notice ready"; }
+    else { msg = "승인 완료된 신청서입니다. 결과보고서를 작성할 수 있습니다."; cls = "notice ready"; }
+  }
+  lock.textContent = msg; lock.className = cls; lock.style.whiteSpace = "pre-wrap";
+  $("#report-scroll").classList.toggle("form-disabled", !editable);
+  $$("#report-form textarea, #report-form input[type='radio'], #report-form input[type='file'], #submit-report").forEach((n) => { n.disabled = !editable; });
+  $("#excel-report").disabled = !enabled;
+  $("#pdf-report").disabled = !approved;
+  $("#pdf-report").title = approved ? "" : "담임 선생님이 결과보고서를 승인하면 저장할 수 있습니다";
   reportFields.recordId.disabled = !myRecs().some(isApproved);
 }
 
@@ -416,17 +444,24 @@ function renderAdminDetail() {
     ["연락처", `학생 ${a.studentPhone || "-"}\n동행자 ${a.companionPhone || "-"}\n방문처 ${a.visitContact || "-"}`],
   ]);
   renderDefinitionList($("#report-detail"), [
-    ["제출", r.submitted ? fmtDateTime(r.submittedAt) : "미제출"],
+    ["제출", r.submitted ? fmtDateTime(r.submittedAt) : "미제출"], ["검토", reviewLabel(rec)],
     ["일시 일치", r.timeMatch === "different" ? "일치하지 않습니다." : "일치합니다."],
     ["실제 시간", r.actualTime], ["변동 이유", r.changeReason],
   ]);
   // PDF는 최종 결재(4단계 모두 승인)가 끝난 뒤에만 저장할 수 있다.
   const done = isApproved(rec);
   $("#pdf-selected-app").disabled = !done;
-  $("#pdf-selected-report").disabled = !done || !r.submitted;
+  const rv = reviewOf(rec);
+  const canReview = r.submitted && Boolean(myStaff?.canManage || (isHomeroomStaff() && canStaffReadRec(rec)));
+  $("#report-review").hidden = !canReview;
+  if (document.activeElement !== $("#report-note")) $("#report-note").value = rv.note;
+  $("#approve-report").textContent = rv.status === "approved" ? "결과보고서 승인됨" : "결과보고서 승인";
+  const reportOk = r.submitted && rv.status === "approved";
+  $("#pdf-selected-report").disabled = !reportOk;
   const rejectedNow = apprOf(rec).rejected;
   $("#delete-rejected").hidden = !(rejectedNow && (myStaff?.canManage || (isHomeroomStaff() && canStaffReadRec(rec))));
-  $("#pdf-hint").textContent = done ? "" : "PDF는 4단계 결재가 모두 끝난 뒤에 저장할 수 있습니다. 미리보기는 언제든 볼 수 있습니다.";
+  $("#pdf-hint").textContent = !done ? "PDF는 4단계 결재가 모두 끝난 뒤에 저장할 수 있습니다. 미리보기는 언제든 볼 수 있습니다."
+    : reportOk ? "" : "결과보고서 PDF는 담임 선생님이 결과보고서를 승인한 뒤에 저장할 수 있습니다.";
 }
 async function saveApproval(rec, patch) {
   const cur = apprOf(rec);
@@ -439,6 +474,29 @@ async function saveApproval(rec, patch) {
     updatedAt: serverTimestamp(),
   });
 }
+/* 학생에게 안내 메일 (Apps Script가 DB를 확인해 받는 사람과 내용을 정한다) */
+async function notifyStudentMail(kind, appId) {
+  if (!MAIL_ENDPOINT) return;
+  try {
+    const idToken = await auth.currentUser.getIdToken();
+    const res = await fetch(MAIL_ENDPOINT, { method: "POST", body: JSON.stringify({ idToken, kind, appId }) });
+    const out = await res.json();
+    toast(out.sent ? "학생에게 안내 메일을 보냈습니다." : out.error ? `안내 메일을 보내지 못했습니다. (${out.error})` : "안내 메일은 보내지 않았습니다.");
+  } catch (e) { console.error(e); toast("안내 메일 발송 결과를 확인하지 못했습니다."); }
+}
+async function reviewReport(status) {
+  const rec = selectedAdminRec(); if (!rec) return;
+  if (!rec.report?.submitted) return toast("아직 결과보고서가 제출되지 않았습니다.");
+  const btn = status === "approved" ? $("#approve-report") : $("#reject-report");
+  await guarded(btn, async () => {
+    await setDoc(doc(db, "reportReviews", rec.id), {
+      ownerUid: rec.uid, appRev: rec.rev, reportAt: rec.report.submittedAt, status,
+      note: $("#report-note").value.trim(), homeroomKey: appHomeroomKey(rec), updatedAt: serverTimestamp(),
+    });
+    toast(status === "approved" ? "결과보고서를 승인했습니다." : "결과보고서를 반려했습니다.");
+    await notifyStudentMail("report", rec.id);
+  });
+}
 async function toggleApproval(index) {
   const rec = selectedAdminRec(); if (!rec) return;
   if (index !== myStaff?.step) return toast(`${approvalSteps[index]} 단계는 해당 담당자만 처리할 수 있습니다.`);
@@ -446,11 +504,19 @@ async function toggleApproval(index) {
   const steps = apprOf(rec).steps.map((s) => ({ ...s }));
   const s = steps[index];
   s.approved = !s.approved; s.at = s.approved ? new Date().toISOString() : "";
-  await guarded(null, async () => { await saveApproval(rec, { steps, rejected: false }); toast(`${s.name} ${s.approved ? "승인" : "승인 취소"} 처리했습니다.`); });
+  await guarded(null, async () => {
+    await saveApproval(rec, { steps, rejected: false });
+    toast(`${s.name} ${s.approved ? "승인" : "승인 취소"} 처리했습니다.`);
+    if (index === 0 && s.approved) await notifyStudentMail("application", rec.id);
+  });
 }
 async function rejectRecord() {
   const rec = selectedAdminRec(); if (!rec) return;
-  await guarded($("#reject-record"), async () => { await saveApproval(rec, { rejected: true, note: $("#admin-note").value.trim() }); toast("반려 처리했습니다."); });
+  await guarded($("#reject-record"), async () => {
+    await saveApproval(rec, { rejected: true, note: $("#admin-note").value.trim() });
+    toast("반려 처리했습니다.");
+    if (myStaff?.step === 0) await notifyStudentMail("application", rec.id);
+  });
 }
 async function deleteRejectedRecord() {
   const rec = selectedAdminRec(); if (!rec) return;
@@ -467,6 +533,7 @@ async function deleteRejectedRecord() {
     await deleteDoc(doc(db, "photos", rec.id)).catch(() => {});
     await deleteDoc(doc(db, "applications", rec.id));
     await deleteDoc(doc(db, "approvals", rec.id)).catch(() => {});
+    await deleteDoc(doc(db, "reportReviews", rec.id)).catch(() => {});
     photoCache.delete(keyOf(rec));
     selectedAdminKey = null;
     toast("반려된 신청서를 삭제했습니다.");
@@ -620,8 +687,8 @@ bindExport($("#pdf-application"), async () => {
 bindExport($("#excel-application"), async () => { const a = getApplicationFromForm(); return { name: `신청서_${safeName(a.name)}_${dateTag()}.xlsx`, data: workbookBuffer("신청서", sheetFromRows(applicationRows(a), [16, 36, 16, 30])) }; });
 bindExport($("#pdf-report"), async () => {
   const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
-  const photo = pendingPhoto ?? await loadPhoto(rec);
-  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(rec.application, reportFromForm(rec), photo)) };
+  if (reviewOf(rec).status !== "approved") { toast("담임 선생님이 결과보고서를 승인한 뒤에 PDF로 저장할 수 있습니다."); return null; }
+  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(rec.application, rec.report, await loadPhoto(rec))) };
 });
 bindExport($("#excel-report"), async () => {
   const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
@@ -638,6 +705,7 @@ bindExport($("#pdf-selected-report"), async () => {
   const r = selectedAdminRec(); if (!r) return null;
   if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
   if (!r.report?.submitted) { toast("아직 결과보고서가 제출되지 않았습니다."); return null; }
+  if (reviewOf(r).status !== "approved") { toast("결과보고서를 승인한 뒤에 PDF로 저장할 수 있습니다."); return null; }
   return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(r.application, r.report, await loadPhoto(r))) };
 });
 bindExport($("#excel-selected-report"), async () => {
@@ -702,6 +770,8 @@ $("#preview-modal").addEventListener("click", (e) => { if (e.target.id === "prev
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#preview-modal").hidden = true; });
 $("#save-note").addEventListener("click", saveNote);
 $("#reject-record").addEventListener("click", rejectRecord);
+$("#approve-report").addEventListener("click", () => reviewReport("approved"));
+$("#reject-report").addEventListener("click", () => reviewReport("rejected"));
 $("#delete-rejected").addEventListener("click", deleteRejectedRecord);
 
 
@@ -729,7 +799,7 @@ async function rejectLogin(message) {
 }
 function showSignedOut(message = "") {
   unsubscribers.forEach((u) => u()); unsubscribers = [];
-  recs = []; apprById = new Map(); staffList = []; studentList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
+  recs = []; apprById = new Map(); reviewById = new Map(); staffList = []; studentList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
   $("#pw-modal").hidden = true; $("#profile-modal").hidden = true;
   $("#login-view").hidden = false; $("#app-shell").hidden = true; $("#user-box").hidden = true;
   $("#login-error").textContent = message || lastLoginMessage;
@@ -960,6 +1030,7 @@ async function deleteStudentRecords(uid, button) {
   try {
     for (const r of targets) {
       await deleteDoc(doc(db, "approvals", r.id)).catch(() => {});
+      await deleteDoc(doc(db, "reportReviews", r.id)).catch(() => {});
       await deleteDoc(doc(db, "photos", r.id)).catch(() => {});
       await deleteDoc(doc(db, "applications", r.id));
       photoCache.delete(keyOf(r));
@@ -1059,11 +1130,21 @@ async function enterApp(user) {
       ? query(appr, where("homeroomKey", "==", staffHomeroomKey()))
       : appr)
     : query(appr, where("ownerUid", "==", myUid));
+  const reviewRef = isAdmin
+    ? (myStaff?.canManage
+      ? collection(db, "reportReviews")
+      : isHomeroomStaff()
+      ? query(collection(db, "reportReviews"), where("homeroomKey", "==", staffHomeroomKey()))
+      : collection(db, "reportReviews"))
+    : query(collection(db, "reportReviews"), where("ownerUid", "==", myUid));
   const watch = (ref, fn) => onSnapshot(ref, fn, (e) => { console.error(e); showBanner("내용을 불러오지 못했습니다. 페이지를 새로고침하세요."); });
   unsubscribers.push(
     watch(appRef, (snap) => { ingestRecords(snap); renderAll(); }),
     watch(apprRef, (snap) => {
       apprById = new Map(snap.docs.map((d) => [d.id, d.data()])); renderAll();
+    }),
+    watch(reviewRef, (snap) => {
+      reviewById = new Map(snap.docs.map((d) => [d.id, d.data()])); renderAll();
     }),
   );
   if (myStaff?.canManage) {

@@ -8,3 +8,7 @@ export const firebaseConfig = {
   messagingSenderId: "831512753931",
   appId: "1:831512753931:web:8fcd3610c46307d699d40e",
 };
+
+// 담임이 신청서/결과보고서를 승인·반려할 때 학생에게 메일을 보내는 Google Apps Script 웹 앱 주소.
+// mail-sender/README.md 순서대로 배포한 뒤 "웹 앱 URL"을 여기에 넣으세요. 비워 두면 메일을 보내지 않습니다.
+export const mailEndpoint = "";

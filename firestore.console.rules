@@ -63,6 +63,15 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/applications/$(appId))
         && get(p).data.appRev == get(/databases/$(database)/documents/applications/$(appId)).data.rev;
     }
+    // 결과보고서가 담임 검토에서 승인된 상태인지(제출 시각이 같을 때만 유효)
+    function reportApproved(appId, at) {
+      let p = /databases/$(database)/documents/reportReviews/$(appId);
+      return exists(p) && get(p).data.status == 'approved' && get(p).data.reportAt == at;
+    }
+    // 결과보고서를 검토할 수 있는 사람: 전체 관리자 또는 해당 학년·반 담임
+    function canReviewReport(data) {
+      return isManager() || homeroomMatches(data);
+    }
     function keep(o, n, my, i) { return i == my || n[i] == o[i]; }
     function othersUnchanged(o, n, my) {
       return keep(o, n, my, 0) && keep(o, n, my, 1) && keep(o, n, my, 2) && keep(o, n, my, 3);
@@ -135,7 +144,8 @@ service cloud.firestore {
           ||
           (fullyApproved(appId, resource.data.rev)
             && request.resource.data.rev == resource.data.rev
-            && request.resource.data.application == resource.data.application)
+            && request.resource.data.application == resource.data.application
+            && !reportApproved(appId, resource.data.report.submittedAt))
         );
 
       allow delete: if (isOwner(resource.data) && !fullyApproved(appId, resource.data.rev))
@@ -173,6 +183,27 @@ service cloud.firestore {
         || (isHomeroomTeacher() && resource.data.homeroomKey == myStaff().homeroomKey && resource.data.rejected == true);
     }
 
+    // ---- 결과보고서 검토: 담임(또는 전체 관리자)이 승인/반려 ----
+    match /reportReviews/{appId} {
+      allow read: if isOwner(resource.data)
+        || (isStaff() && (isManager() || myStaff().step in [1, 2, 3]))
+        || (isHomeroomTeacher() && resource.data.homeroomKey == myStaff().homeroomKey);
+
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'appRev', 'reportAt', 'status', 'note', 'homeroomKey', 'updatedAt'])
+        && request.resource.data.status in ['approved', 'rejected']
+        && exists(/databases/$(database)/documents/applications/$(appId))
+        && canReviewReport(get(/databases/$(database)/documents/applications/$(appId)).data)
+        && request.resource.data.ownerUid == get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid
+        && request.resource.data.appRev == get(/databases/$(database)/documents/applications/$(appId)).data.rev
+        && get(/databases/$(database)/documents/applications/$(appId)).data.report.submitted == true
+        && request.resource.data.reportAt == get(/databases/$(database)/documents/applications/$(appId)).data.report.submittedAt
+        && fullyApproved(appId, get(/databases/$(database)/documents/applications/$(appId)).data.rev);
+
+      allow delete: if isManager()
+        || (isHomeroomTeacher() && resource.data.homeroomKey == myStaff().homeroomKey);
+    }
+
     match /photos/{appId} {
       allow read: if isOwner(resource.data) || (isStaff() && canReadApplicationId(appId));
       allow create, update: if isStudent()
@@ -180,7 +211,8 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.data.size() < 400000
         && exists(/databases/$(database)/documents/applications/$(appId))
-        && get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid == request.auth.uid;
+        && get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid == request.auth.uid
+        && !reportApproved(appId, get(/databases/$(database)/documents/applications/$(appId)).data.report.submittedAt);
       allow delete: if isManager() || isOwner(resource.data)
         || (isHomeroomTeacher() && canReadApplicationId(appId) && isRejected(appId));
     }
