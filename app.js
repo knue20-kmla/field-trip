@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, EmailAuthProvider, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, reauthenticateWithCredential, updatePassword, signOut }
+  createUserWithEmailAndPassword, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -42,6 +42,9 @@ let loaded = false;
 let unsubscribers = [];
 let selectedAdminKey = null;
 let currentFilter = "all";
+const BUILTIN_HOLIDAYS = { "2026-10-05": "개천절 대체공휴일", "2026-10-09": "한글날", "2026-12-25": "성탄절", "2027-01-01": "신정" };
+let customHolidays = {};       // 전체 관리자가 등록한 날짜 { "YYYY-MM-DD": "이름" }
+const holidayName = (key) => customHolidays[key] ?? BUILTIN_HOLIDAYS[key] ?? null;
 const MIN_PHOTOS = 3, MAX_PHOTOS = 6;
 let photoList = [];            // 화면에서 편집 중인 활동 인증 사진 [{name, data}]
 let photosDirty = false;       // 사진을 추가하거나 삭제했는지
@@ -99,7 +102,7 @@ function weekdaysBetween(startValue, endValue) {
   const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   while (cur <= last) {
-    if (cur.getDay() !== 0 && cur.getDay() !== 6) out.push(localDateKey(cur));
+    if (cur.getDay() !== 0 && cur.getDay() !== 6 && !holidayName(localDateKey(cur))) out.push(localDateKey(cur));
     cur.setDate(cur.getDate() + 1);
   }
   return out;
@@ -137,7 +140,7 @@ function apprOf(rec) {
 const isApproved = (rec) => { const a = apprOf(rec); return !a.rejected && a.steps.every((s) => s.approved); };
 function reviewOf(rec) {
   const it = reviewById.get(rec.id);
-  if (it && it.appRev === rec.rev && it.reportAt === (rec.report?.submittedAt ?? "")) return { status: it.status, note: it.note ?? "" };
+  if (it && it.appRev === rec.rev && it.reportAt === (rec.report?.submittedAt ?? "")) return { status: it.status, note: it.note ?? "", by: it.by ?? "", at: it.updatedAt?.toDate ? it.updatedAt.toDate().toISOString() : (it.updatedAt ?? "") };
   return { status: rec.report?.submitted ? "pending" : "none", note: "" };
 }
 function reviewLabel(rec) {
@@ -344,6 +347,7 @@ function setReportEnabled(enabled, rec = null) {
 async function submitApplication(event) {
   event.preventDefault();
   const app = getApplicationFromForm();
+  if (myStudent) { app.grade = String(myStudent.grade ?? "").trim(); app.classroom = String(myStudent.classroom ?? "").trim(); }
   if (new Date(app.endAt) < new Date(app.startAt)) return toast("종료 일시는 시작 일시 이후여야 합니다.");
   if (!app.dailyPlans.length) return toast("주말을 제외한 기간에 해당하는 학습계획 날짜가 없습니다.");
   if (app.dailyPlans.some((p) => !p.plan)) return toast("일별 학습계획을 모두 입력하세요.");
@@ -463,7 +467,7 @@ function renderAdminDetail() {
   $("#approval-grid").innerHTML = appr.steps.map((s, i) => `
     <div class="approval-step">
       <strong>${escapeHtml(approvalSteps[i])}${i === myStaff?.step ? " (나)" : ""}</strong>
-      <p>${s.approved ? escapeHtml(fmtDateTime(s.at)) : "대기"}</p>
+      <p>${s.approved ? `${s.by ? escapeHtml(s.by) + " · " : ""}${escapeHtml(fmtDateTime(s.at))}` : "대기"}</p>
       <button class="${s.approved ? "secondary-button" : "primary-button"}" data-step="${i}" type="button" ${canStaffApproveRec(rec, i) ? "" : "disabled"}>${s.approved ? "승인 취소" : "승인"}</button>
     </div>`).join("");
   renderDefinitionList($("#application-detail"), [
@@ -519,7 +523,7 @@ async function reviewReport(status) {
   await guarded(btn, async () => {
     await setDoc(doc(db, "reportReviews", rec.id), {
       ownerUid: rec.uid, appRev: rec.rev, reportAt: rec.report.submittedAt, status,
-      note: $("#report-note").value.trim(), homeroomKey: appHomeroomKey(rec), updatedAt: serverTimestamp(),
+      note: $("#report-note").value.trim(), homeroomKey: appHomeroomKey(rec), by: myStaff?.name ?? "", updatedAt: serverTimestamp(),
     });
     toast(status === "approved" ? "결과보고서를 승인했습니다." : "결과보고서를 반려했습니다.");
     await notifyStudentMail("report", rec.id);
@@ -531,7 +535,7 @@ async function toggleApproval(index) {
   if (!canStaffApproveRec(rec, index)) return toast("담임은 본인 학년/반 신청서만 승인할 수 있습니다.");
   const steps = apprOf(rec).steps.map((s) => ({ ...s }));
   const s = steps[index];
-  s.approved = !s.approved; s.at = s.approved ? new Date().toISOString() : "";
+  s.approved = !s.approved; s.at = s.approved ? new Date().toISOString() : ""; s.by = s.approved ? (myStaff?.name ?? "") : "";
   await guarded(null, async () => {
     await saveApproval(rec, { steps, rejected: false });
     toast(`${s.name} ${s.approved ? "승인" : "승인 취소"} 처리했습니다.`);
@@ -589,10 +593,21 @@ function renderAll() {
 
 /* ---------- 인쇄용 양식 → PDF ---------- */
 const paperHead = () => `<div class="paper-head"><img src="./logo.png" alt=""><div><strong>민족사관고등학교</strong><span>Korean Minjok Leadership Academy</span></div></div>`;
-function applicationHtml(app) {
+function signTableHtml(appr) {
+  const head = approvalSteps.map((n) => `<th>${n}</th>`).join("");
+  const body = approvalSteps.map((n, i) => {
+    const s = appr?.steps?.[i];
+    const done = Boolean(s?.approved);
+    const d = done && s.at ? new Date(s.at) : null;
+    const date = d && !Number.isNaN(d.getTime()) ? `${d.getMonth() + 1}.${d.getDate()}.` : "";
+    return `<td><div class="sign-name">${done ? escapeHtml(s.by || "승인") : ""}</div><div class="sign-date">${date}</div></td>`;
+  }).join("");
+  return `<table class="sign-table"><tr>${head}</tr><tr>${body}</tr></table>`;
+}
+function applicationHtml(app, appr = null) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt), l = dateParts(app.leaveAt);
   const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
-  return `<article class="print-form">${paperHead()}<h1>교외체험학습 신청서</h1><table>
+  return `<article class="print-form">${paperHead()}${signTableHtml(appr)}<h1>교외체험학습 신청서</h1><table>
     <tr><th>이름</th><td colspan="3">${escapeHtml(app.name)}</td><th>학번</th><td colspan="3">${escapeHtml(app.studentId)}</td></tr>
     <tr><th>학년/반</th><td colspan="3">${escapeHtml(app.grade)}학년 ${escapeHtml(app.classroom)}반 ${escapeHtml(app.number)}번</td><th>학습 형태</th><td colspan="3">${escapeHtml(app.learningType)}</td></tr>
     <tr><th>시작 일시</th><td colspan="7">${s.year}년 ${s.month}월 ${s.day}일 ${s.weekday}요일 ${s.hour}시 부터</td></tr>
@@ -613,10 +628,10 @@ function photoGridHtml(photos) {
   for (let i = 0; i < cells.length; i += 3) rows.push(`<tr>${cells.slice(i, i + 3).join("")}</tr>`);
   return `<table class="photo-grid">${rows.join("")}</table>`;
 }
-function reportHtml(app, report, photos = []) {
+function reportHtml(app, report, photos = [], appr = null, review = null) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt);
   const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
-  return `<article class="print-form">${paperHead()}<h1>교외체험학습 결과 보고서</h1><table>
+  return `<article class="print-form">${paperHead()}${signTableHtml(appr)}<h1>교외체험학습 결과 보고서</h1><table>
     <tr><th>이름</th><td colspan="3">${escapeHtml(app.name)}</td><th>학번</th><td colspan="3">${escapeHtml(app.studentId)}</td></tr>
     <tr><th>학년/반</th><td colspan="7">${escapeHtml(app.grade)}학년 ${escapeHtml(app.classroom)}반 ${escapeHtml(app.number)}번</td></tr>
     <tr><th>시작 일시</th><td colspan="7">${s.year}년 ${s.month}월 ${s.day}일 ${s.weekday}요일 ${s.hour}시 부터</td></tr>
@@ -626,6 +641,7 @@ function reportHtml(app, report, photos = []) {
     <tr><th>변동 이유</th><td colspan="7">${escapeHtml(report.changeReason)}</td></tr>
     <tr><th>체험학습 결과보고란</th><td class="print-large" colspan="7">${escapeHtml(report.reportText)}</td></tr>
     <tr><th>활동인증 사진</th><td colspan="7">${photoGridHtml(photos)}</td></tr>
+    ${review?.status === "approved" ? `<tr><th>결과보고서 검토</th><td colspan="7">담임 ${escapeHtml(review.by || "")} 승인 ${review.at ? `(${new Date(review.at).getFullYear()}.${new Date(review.at).getMonth() + 1}.${new Date(review.at).getDate()}.)` : ""}</td></tr>` : ""}
     <tr><th>확인</th><td colspan="7">${sign}</td></tr></table></article>`;
 }
 async function htmlToPdf(html) {
@@ -705,24 +721,24 @@ function bindExport(btn, make) { btn.addEventListener("click", () => withButton(
 bindExport($("#pdf-application"), async () => {
   const rec = currentMine();
   if (!rec || !isApproved(rec)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
-  return { name: `신청서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(rec.application)) };
+  return { name: `신청서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(rec.application, apprOf(rec))) };
 });
 bindExport($("#pdf-report"), async () => {
   const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
   if (reviewOf(rec).status !== "approved") { toast("담임 선생님이 결과보고서를 승인한 뒤에 PDF로 저장할 수 있습니다."); return null; }
-  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(rec.application, rec.report, await loadPhotos(rec))) };
+  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(rec.application, rec.report, await loadPhotos(rec), apprOf(rec), reviewOf(rec))) };
 });
 bindExport($("#pdf-selected-app"), async () => {
   const r = selectedAdminRec(); if (!r) return null;
   if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
-  return { name: `신청서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(r.application)) };
+  return { name: `신청서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(r.application, apprOf(r))) };
 });
 bindExport($("#pdf-selected-report"), async () => {
   const r = selectedAdminRec(); if (!r) return null;
   if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
   if (!r.report?.submitted) { toast("아직 결과보고서가 제출되지 않았습니다."); return null; }
   if (reviewOf(r).status !== "approved") { toast("결과보고서를 승인한 뒤에 PDF로 저장할 수 있습니다."); return null; }
-  return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(r.application, r.report, await loadPhotos(r))) };
+  return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(r.application, r.report, await loadPhotos(r), apprOf(r), reviewOf(r))) };
 });
 bindExport($("#export-all"), async () => {
   const ws = XLSX.utils.aoa_to_sheet(listRows());
@@ -780,12 +796,12 @@ function openPreview(title, html) {
 }
 $("#preview-app").addEventListener("click", () => {
   const r = selectedAdminRec(); if (!r) return;
-  openPreview(`${r.application.name || ""} 신청서 미리보기`, applicationHtml(r.application));
+  openPreview(`${r.application.name || ""} 신청서 미리보기`, applicationHtml(r.application, apprOf(r)));
 });
 $("#preview-report").addEventListener("click", async () => {
   const r = selectedAdminRec(); if (!r) return;
   if (!r.report?.submitted) return toast("아직 결과보고서가 제출되지 않았습니다.");
-  openPreview(`${r.application.name || ""} 결과보고서 미리보기`, reportHtml(r.application, r.report, await loadPhotos(r)));
+  openPreview(`${r.application.name || ""} 결과보고서 미리보기`, reportHtml(r.application, r.report, await loadPhotos(r), apprOf(r), reviewOf(r)));
 });
 $("#preview-close").addEventListener("click", () => { $("#preview-modal").hidden = true; });
 $("#preview-modal").addEventListener("click", (e) => { if (e.target.id === "preview-modal") $("#preview-modal").hidden = true; });
@@ -1061,6 +1077,26 @@ async function deleteStudentRecords(uid, button) {
   } catch (e) { console.error(e); toast(explainError(e)); }
   finally { button.disabled = false; button.dataset.confirm = ""; button.textContent = "신청 기록 삭제"; }
 }
+/* 공휴일·휴업일 관리 (전체 관리자) */
+function renderHolidayList() {
+  const list = $("#holiday-list"); if (!list) return;
+  const custom = Object.entries(customHolidays).sort(([a], [b]) => a.localeCompare(b));
+  const builtin = Object.entries(BUILTIN_HOLIDAYS).filter(([k]) => !(k in customHolidays)).sort(([a], [b]) => a.localeCompare(b));
+  list.innerHTML = [...custom.map(([k, n]) => `<div class="staff-item"><div><strong>${escapeHtml(k)}</strong><span>${escapeHtml(n)}</span></div><button class="ghost-button" data-del-holiday="${escapeHtml(k)}" type="button">삭제</button></div>`),
+    ...builtin.map(([k, n]) => `<div class="staff-item"><div><strong>${escapeHtml(k)}</strong><span>${escapeHtml(n)} · 기본 등록</span></div></div>`)].join("")
+    || `<div class="empty-state">등록된 날짜가 없습니다.</div>`;
+}
+async function saveHolidays(next, okMessage) {
+  try { await setDoc(doc(db, "settings", "holidays"), { dates: next, updatedAt: serverTimestamp() }); toast(okMessage); }
+  catch (e) { console.error(e); toast(explainError(e)); }
+}
+async function addHoliday(event) {
+  event.preventDefault();
+  const date = $("#hol-date").value, name = $("#hol-name").value.trim();
+  if (!date || !name) return;
+  await saveHolidays({ ...customHolidays, [date]: name }, "날짜를 추가했습니다.");
+  $("#holiday-form").reset();
+}
 async function approveStaff(uid, button) {
   const s = staffList.find((item) => item.uid === uid);
   button.disabled = true;
@@ -1134,7 +1170,7 @@ async function enterApp(user) {
   $('#role-switch [data-view="report"]').hidden = Boolean(myStaff);
   $('#role-switch [data-view="admin"]').hidden = !myStaff;
   $('#role-switch [data-view="accounts"]').hidden = !myStaff?.canManage;
-  $("#change-password").hidden = !myStaff;
+  $("#change-password").hidden = false;
   showBanner("");
   setView(myStaff ? "admin" : "application");
   const apps = collection(db, "applications"), appr = collection(db, "approvals");
@@ -1189,6 +1225,11 @@ async function enterApp(user) {
       showBanner("학생 목록을 불러오지 못했습니다. Firestore 규칙에서 students 목록 권한을 확인하세요.");
     }));
   }
+  unsubscribers.push(onSnapshot(doc(db, "settings", "holidays"), (snap) => {
+    customHolidays = snap.exists() ? (snap.data().dates ?? {}) : {};
+    renderHolidayList();
+    if (!$("#app-shell").hidden && $("#application-view").classList.contains("active")) renderDailyPlanInputs();
+  }, (e) => console.error(e)));
   fillApplicationForm(null);
   renderAll();
   if (myStaff?.mustChange) openPasswordModal(true);
@@ -1235,12 +1276,31 @@ function start() {
   });
   $("#acc-step").dispatchEvent(new Event("change"));
   $("#sign-out").addEventListener("click", () => signOut(auth));
+  $("#forgot-password").addEventListener("click", async () => {
+    const email = $("#student-email").value.trim();
+    const err = $("#login-error");
+    if (!email) { err.textContent = "위의 이메일 칸에 가입한 이메일을 먼저 입력하세요."; return; }
+    const btn = $("#forgot-password"); btn.disabled = true; err.textContent = "";
+    try {
+      await sendPasswordResetEmail(auth, email);
+      toast("입력한 이메일로 재설정 메일을 보냈습니다. 받은편지함과 스팸함을 확인하세요.");
+    } catch (e) {
+      console.error(e);
+      err.textContent = e?.code?.includes("invalid-email") ? "이메일 형식이 올바르지 않습니다." : "메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    } finally { btn.disabled = false; }
+  });
   $("#change-password").addEventListener("click", () => openPasswordModal(false));
   $("#pw-form").addEventListener("submit", submitPassword);
   $("#profile-form").addEventListener("submit", submitProfile);
   $("#profile-cancel").addEventListener("click", () => { $("#profile-modal").hidden = true; profileUser = null; rejectLogin(""); });
   $("#pw-cancel").addEventListener("click", () => { if (!pwForced) $("#pw-modal").hidden = true; });
   $("#account-form").addEventListener("submit", createAccount);
+  $("#holiday-form").addEventListener("submit", addHoliday);
+  $("#holiday-list").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-del-holiday]"); if (!b) return;
+    const next = { ...customHolidays }; delete next[b.dataset.delHoliday];
+    saveHolidays(next, "날짜를 삭제했습니다.");
+  });
   $("#staff-list").addEventListener("click", (e) => {
     const del = e.target.closest("button[data-del]"); if (del) deleteStaff(del.dataset.del, del);
     const reset = e.target.closest("button[data-reset-staff]"); if (reset) requirePasswordChange(reset.dataset.resetStaff, reset);

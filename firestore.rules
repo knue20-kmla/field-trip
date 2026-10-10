@@ -99,9 +99,10 @@ service cloud.firestore {
         && request.resource.data.grade is string
         && request.resource.data.classroom is string
         && request.resource.data.phone is string;
-      allow update: if request.auth != null
-        && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'grade', 'classroom', 'phone']);
+      allow update: if (request.auth != null && request.auth.uid == uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone']))
+        || (isManager()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'grade', 'classroom', 'phone']));
       allow delete: if isManager();
     }
 
@@ -142,6 +143,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['ownerUid', 'ownerEmail', 'createdAt', 'rev', 'application', 'report', 'updatedAt'])
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerEmail == request.auth.token.email
+        && request.resource.data.application.grade == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.grade
+        && request.resource.data.application.classroom == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.classroom
         && request.resource.data.rev == 1
         && request.resource.data.report.submitted == false;
 
@@ -154,6 +157,8 @@ service cloud.firestore {
           // 결재가 끝나기 전: 신청서를 수정할 수 있다. 개정번호가 1 올라가 기존 결재는 무효가 된다.
           (!fullyApproved(appId, resource.data.rev)
             && request.resource.data.rev == resource.data.rev + 1
+            && request.resource.data.application.grade == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.grade
+            && request.resource.data.application.classroom == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.classroom
             && request.resource.data.report == resource.data.report)
           ||
           // 결재가 끝난 뒤: 신청서는 고정, 결과보고서만 쓸 수 있다.
@@ -206,7 +211,7 @@ service cloud.firestore {
         || (isHomeroomTeacher() && resource.data.homeroomKey == myStaff().homeroomKey);
 
       allow create, update: if isStaff()
-        && request.resource.data.keys().hasOnly(['ownerUid', 'appRev', 'reportAt', 'status', 'note', 'homeroomKey', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'appRev', 'reportAt', 'status', 'note', 'homeroomKey', 'by', 'updatedAt'])
         && request.resource.data.status in ['approved', 'rejected']
         && exists(/databases/$(database)/documents/applications/$(appId))
         && canReviewReport(get(/databases/$(database)/documents/applications/$(appId)).data)
@@ -221,6 +226,12 @@ service cloud.firestore {
     }
 
     // ---- 결과보고서 활동 인증 사진(여러 장): photos/{신청서ID}/items/{0~5} ----
+    // ---- 공휴일/휴업일 목록: 로그인한 누구나 읽고, 전체 관리자만 수정 ----
+    match /settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isManager();
+    }
+
     match /photos/{appId}/items/{idx} {
       allow read: if isOwner(resource.data) || (isStaff() && canReadApplicationId(appId));
       allow create, update: if isStudent()

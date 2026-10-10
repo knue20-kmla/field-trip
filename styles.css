@@ -270,3 +270,26 @@ dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .photo-box { height: 168px; line-height: 168px; border: 1px solid #888; background: #fff; text-align: center; overflow: hidden; }
 .photo-box img { max-width: 100%; max-height: 164px; vertical-align: middle; }
 .photo-cap { font-size: 11px; color: #333; margin-top: 3px; line-height: 1.3; }
+
+input[readonly] { background: var(--soft); cursor: not-allowed; }
+
+/* 결재란 (PDF·미리보기 서식) */
+.print-form .sign-table { width: 300px; margin: 0 0 10px auto; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+.print-form .sign-table th, .print-form .sign-table td { width: 25%; border: 1px solid #111; padding: 3px 2px; text-align: center; color: #000; }
+.print-form .sign-table th { background: #f0f0f0; font-weight: 700; }
+.sign-name { min-height: 20px; font-size: 12px; line-height: 20px; }
+.sign-date { min-height: 14px; font-size: 10px; color: #444; line-height: 14px; }
+
+/* 휴대폰: 서식 표를 항목별 카드로 쌓는다 */
+@media (max-width: 720px) {
+  .excel-form { min-width: 0; border: 0; background: transparent; }
+  .excel-form, .excel-form tbody, .excel-form tr, .excel-form th, .excel-form td { display: block; width: 100%; }
+  .excel-form tr { margin-bottom: 12px; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .excel-form th { border: 0; border-bottom: 1px solid var(--line); text-align: left; padding: 8px 12px; }
+  .excel-form td { border: 0; padding: 8px 12px; }
+  .excel-form tr.row-class { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; column-gap: 6px; padding-bottom: 10px; }
+  .excel-form tr.row-class th { grid-column: 1 / -1; margin-bottom: 8px; }
+  .excel-form tr.row-class td { width: auto; padding: 0; }
+  .excel-form tr.row-class td.unit { padding-right: 4px; }
+  .excel-form select, .excel-form input, .excel-form textarea { font-size: 16px; }
+}

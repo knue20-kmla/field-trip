@@ -43,6 +43,7 @@
       <label class="full" for="student-email">이메일<input id="student-email" type="email" autocomplete="username" required /></label>
       <label class="full" for="student-password">비밀번호<input id="student-password" type="password" autocomplete="current-password" required /></label>
       <button class="primary-button" id="sign-in" type="submit">학생 로그인</button>
+      <button class="ghost-button" id="forgot-password" type="button">비밀번호를 잊으셨나요? 재설정 메일 받기</button>
     </form>
     <form id="student-signup" class="login-pane">
       <div class="signup-divider"><span>학생 회원가입</span></div>
@@ -118,11 +119,11 @@
                 <th>학번</th>
                 <td colspan="6"><input id="student-id" inputmode="numeric" /></td>
               </tr>
-              <tr>
+              <tr class="row-class">
                 <th>학년/반</th>
-                <td><input id="grade" inputmode="numeric" aria-label="학년" /></td>
+                <td><input id="grade" inputmode="numeric" aria-label="학년" readonly title="가입할 때 입력한 학년입니다" /></td>
                 <td class="unit">학년</td>
-                <td><input id="classroom" inputmode="numeric" aria-label="반" /></td>
+                <td><input id="classroom" inputmode="numeric" aria-label="반" readonly title="가입할 때 입력한 반입니다" /></td>
                 <td class="unit">반</td>
                 <td><input id="number" inputmode="numeric" aria-label="번호" /></td>
                 <td class="unit">번호</td>
@@ -159,7 +160,7 @@
               <tr>
                 <th>학습계획</th>
                 <td colspan="10">
-                  <p class="cell-note">시작일시와 종료일시에 포함된 주말을 제외하고 날짜별 계획을 입력합니다.</p>
+                  <p class="cell-note">시작일시와 종료일시에 포함된 날 중 주말과 공휴일·휴업일을 제외하고 날짜별 계획을 입력합니다.</p>
                   <div id="daily-plan-list" class="daily-plan-list"></div>
                 </td>
               </tr>
@@ -301,6 +302,16 @@
         <div class="panel-heading"><div><p class="eyebrow">전체 관리자</p><h2>학생 목록</h2></div></div>
         <p class="cell-note">학생 등록을 삭제하면 해당 학생은 더 이상 로그인할 수 없습니다. Firebase Authentication 사용자 자체 삭제나 비밀번호 재설정은 Firebase 콘솔에서 처리해야 합니다.</p>
         <div id="student-list" class="record-list"></div>
+      </section>
+      <section class="panel" id="holiday-panel">
+        <div class="panel-heading"><div><p class="eyebrow">전체 관리자</p><h2>공휴일·휴업일 관리</h2></div></div>
+        <p class="cell-note">등록한 날짜는 신청서의 일별 학습계획에서 제외됩니다. 주말은 자동으로 제외됩니다.</p>
+        <form id="holiday-form" class="login-pane">
+          <label class="full" for="hol-date">날짜<input id="hol-date" type="date" required /></label>
+          <label class="full" for="hol-name">이름 (예: 재량휴업일)<input id="hol-name" required /></label>
+          <button class="primary-button" id="hol-add" type="submit">추가</button>
+        </form>
+        <div id="holiday-list" class="record-list"></div>
       </section>
     </div>
   </section>
