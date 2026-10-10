@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>교외체험학습 신청 관리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+
+<header class="topbar">
+  <div>
+    <p class="eyebrow">교외체험학습</p>
+    <h1>신청·결과보고 관리</h1>
+  </div>
+  <div class="user-box" id="user-box" hidden><span id="user-email"></span><div class="role-switch" id="role-switch" aria-label="화면 전환" hidden>
+    <button class="role-button active" data-view="student" type="button">학생</button>
+    <button class="role-button" data-view="admin" type="button">결재</button>
+    <button class="role-button" data-view="accounts" type="button" hidden>계정 관리</button>
+  </div><button class="ghost-button" id="change-password" type="button" hidden>비밀번호 변경</button><button class="ghost-button" id="sign-out" type="button">로그아웃</button></div>
+</header>
+
+<section class="login-view" id="login-view">
+  <div class="login-card">
+    <div><p class="eyebrow">교외체험학습</p><h2>로그인</h2></div>
+    <div class="role-switch" id="login-tabs" role="tablist" aria-label="로그인 대상">
+      <button class="role-button active" data-login="student" type="button" role="tab">학생</button>
+      <button class="role-button" data-login="staff" type="button" role="tab">교직원</button>
+    </div>
+    <div id="login-student" class="login-pane">
+      <p>구글 계정으로 로그인합니다. 본인이 작성한 신청서만 보고 수정할 수 있습니다.</p>
+      <button class="primary-button" id="sign-in" type="button">구글 계정으로 로그인</button>
+    </div>
+    <form id="login-staff" class="login-pane" hidden>
+      <p>담임, 교무부장, 교감, 교장 선생님은 발급받은 아이디로 로그인합니다.</p>
+      <label class="full" for="staff-id">아이디<input id="staff-id" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
+      <label class="full" for="staff-password">비밀번호<input id="staff-password" type="password" autocomplete="current-password" required /></label>
+      <button class="primary-button" id="staff-sign-in" type="submit">로그인</button>
+    </form>
+    <p id="login-error" role="alert"></p>
+  </div>
+</section>
+
+<main id="app-main" hidden>
+  <div class="banner" id="banner" hidden></div>
+
+  <section class="summary-strip" aria-label="처리 현황">
+    <div><span id="stat-total">0</span><strong>전체 신청</strong></div>
+    <div><span id="stat-review">0</span><strong>검토 중</strong></div>
+    <div><span id="stat-approved">0</span><strong>승인 완료</strong></div>
+    <div><span id="stat-report">0</span><strong>보고서 제출</strong></div>
+  </section>
+
+  <section id="student-view" class="view active">
+    <div class="workspace-grid">
+      <form id="application-form" class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">학생 입력</p>
+            <h2>체험학습 신청서</h2>
+          </div>
+          <select id="my-record" aria-label="내 신청서 선택"></select>
+        </div>
+        <div id="app-lock" class="notice" hidden></div>
+        <input id="record-id" type="hidden" />
+        <div class="excel-scroll" id="app-scroll">
+          <table class="excel-form" aria-label="교외체험학습 신청서 입력 양식">
+            <tbody>
+              <tr>
+                <th rowspan="2">이름</th>
+                <td rowspan="2" colspan="3"><input id="student-name" required /></td>
+                <th>학번</th>
+                <td colspan="6"><input id="student-id" inputmode="numeric" /></td>
+              </tr>
+              <tr>
+                <th>학년/반</th>
+                <td><input id="grade" inputmode="numeric" aria-label="학년" /></td>
+                <td class="unit">학년</td>
+                <td><input id="classroom" inputmode="numeric" aria-label="반" /></td>
+                <td class="unit">반</td>
+                <td><input id="number" inputmode="numeric" aria-label="번호" /></td>
+                <td class="unit">번호</td>
+              </tr>
+              <tr><th>시작 일시</th><td colspan="10"><input id="start-at" type="datetime-local" required /></td></tr>
+              <tr><th>종료 일시</th><td colspan="10"><input id="end-at" type="datetime-local" required /></td></tr>
+              <tr><th>학교출발시각</th><td colspan="10"><input id="leave-at" type="datetime-local" /></td></tr>
+              <tr>
+                <th>학습 형태</th>
+                <td colspan="3">
+                  <select id="learning-type"><option>개인여행</option><option>행사참가</option><option>기타</option></select>
+                </td>
+                <th>비고</th>
+                <td colspan="6"><textarea id="application-note" rows="2"></textarea></td>
+              </tr>
+              <tr><th>주제</th><td colspan="10"><input id="subject" /></td></tr>
+              <tr><th>활동 장소</th><td colspan="10"><input id="place" placeholder="목적지 또는 기관명" /></td></tr>
+              <tr>
+                <th>동행자명</th>
+                <td colspan="3"><input id="companion-name" /></td>
+                <th>관계</th>
+                <td colspan="2">
+                  <select id="relationship"><option>부모님</option><option>교사</option><option>친척</option><option>친구</option><option>기타</option></select>
+                </td>
+                <th>비고</th>
+                <td colspan="3"><span class="cell-note">필요 시 위 비고란에 입력</span></td>
+              </tr>
+              <tr>
+                <th>연락처</th>
+                <td colspan="3"><input id="student-phone" placeholder="학생(본인) H.P" /></td>
+                <td colspan="3"><input id="companion-phone" placeholder="동행자 H.P" /></td>
+                <td colspan="4"><input id="visit-contact" placeholder="방문처" /></td>
+              </tr>
+              <tr>
+                <th>학습계획</th>
+                <td colspan="10">
+                  <p class="cell-note">시작일시와 종료일시에 포함된 주말을 제외하고 날짜별 계획을 입력합니다.</p>
+                  <div id="daily-plan-list" class="daily-plan-list"></div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <button class="primary-button" id="submit-application" type="submit">신청서 제출</button>
+          <button class="secondary-button" id="pdf-application" type="button">신청서 PDF 저장</button>
+          <button class="secondary-button" id="excel-application" type="button">신청서 엑셀 저장</button>
+          <button class="ghost-button" id="new-application" type="button">새 신청</button>
+          <button class="ghost-button" id="delete-application" type="button">신청서 삭제</button>
+        </div>
+      </form>
+
+      <form id="report-form" class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">학생 입력</p>
+            <h2>결과보고서</h2>
+          </div>
+          <select id="report-record" aria-label="결과보고서를 쓸 신청서 선택"></select>
+        </div>
+        <div id="report-lock" class="notice">담당자 결재가 모두 완료된 신청서만 결과보고서를 작성할 수 있습니다.</div>
+        <div class="excel-scroll" id="report-scroll">
+          <table class="excel-form" aria-label="교외체험학습 결과보고서 입력 양식">
+            <tbody>
+              <tr>
+                <th>시작·종료 일시가 신청서와</th>
+                <td colspan="10">
+                  <label class="radio-line"><input name="time-match" type="radio" value="match" checked /> 일치합니다.</label>
+                  <label class="radio-line"><input name="time-match" type="radio" value="different" /> 일치하지 않습니다.</label>
+                </td>
+              </tr>
+              <tr><th>실제 활동 시간</th><td colspan="10"><textarea id="actual-time" rows="2" placeholder="신청서와 일치하지 않을 경우 입력하세요."></textarea></td></tr>
+              <tr><th>변동 이유</th><td colspan="10"><textarea id="change-reason" rows="3" placeholder="신청서와 일치하지 않은 경우 사유를 자세히 입력하세요."></textarea></td></tr>
+              <tr><th>체험학습 / 결과보고란</th><td colspan="10"><textarea id="report-text" rows="7" placeholder="활동 내용이 확인될 수 있도록 자세하게 작성하세요."></textarea></td></tr>
+              <tr>
+                <th>활동인증 / 사진(첨부)</th>
+                <td colspan="10">
+                  <input id="evidence-photo" type="file" accept="image/*" />
+                  <div id="photo-preview" class="photo-preview" hidden></div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <button class="primary-button" id="submit-report" type="submit">결과보고서 제출</button>
+          <button class="secondary-button" id="pdf-report" type="button">결과보고서 PDF 저장</button>
+          <button class="secondary-button" id="excel-report" type="button">결과보고서 엑셀 저장</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="admin-view" class="view">
+    <div class="admin-layout">
+      <aside class="queue-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">담당자</p>
+            <h2>접수 목록</h2>
+          </div>
+          <button class="ghost-button" id="export-all" type="button">전체 현황 엑셀</button>
+        </div>
+        <div class="filters" role="group" aria-label="상태 필터">
+          <button class="filter active" data-filter="all" type="button">전체</button>
+          <button class="filter" data-filter="review" type="button">검토</button>
+          <button class="filter" data-filter="approved" type="button">승인</button>
+          <button class="filter" data-filter="rejected" type="button">반려</button>
+        </div>
+        <div id="record-list" class="record-list"></div>
+      </aside>
+
+      <section class="detail-panel">
+        <div id="empty-detail" class="empty-state">접수 목록에서 신청서를 선택하세요.</div>
+        <div id="admin-detail" hidden>
+          <div class="detail-header">
+            <div>
+              <p class="eyebrow">선택 신청</p>
+              <h2 id="detail-title"></h2>
+              <p id="detail-meta"></p>
+            </div>
+            <span id="detail-status" class="status-badge"></span>
+          </div>
+          <div class="approval-grid" id="approval-grid"></div>
+          <div class="detail-sections">
+            <section><h3>신청 내용</h3><dl id="application-detail"></dl></section>
+            <section><h3>결과보고</h3><dl id="report-detail"></dl><img id="admin-photo" class="admin-photo" alt="활동 인증 사진" hidden /></section>
+          </div>
+          <label class="full" for="admin-note">검토 메모 (학생에게도 보입니다)<textarea id="admin-note" rows="3"></textarea></label>
+          <div class="form-actions">
+            <button class="primary-button" id="save-note" type="button">메모 저장</button>
+            <button class="secondary-button" id="reject-record" type="button">반려</button>
+            <button class="secondary-button" id="pdf-selected-app" type="button">신청서 PDF</button>
+            <button class="secondary-button" id="excel-selected-app" type="button">신청서 엑셀</button>
+            <button class="secondary-button" id="pdf-selected-report" type="button">결과보고서 PDF</button>
+            <button class="secondary-button" id="excel-selected-report" type="button">결과보고서 엑셀</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+  <section id="accounts-view" class="view">
+    <div class="workspace-grid">
+      <form id="account-form" class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">관리자</p><h2>교직원 계정 만들기</h2></div></div>
+        <label class="full" for="acc-name">이름<input id="acc-name" required /></label>
+        <label class="full" for="acc-id">아이디 (영문 소문자, 숫자, . _ - 4~20자)<input id="acc-id" autocomplete="off" autocapitalize="none" spellcheck="false" required pattern="[a-z0-9._\-]{4,20}" /></label>
+        <label class="full" for="acc-step">결재 단계
+          <select id="acc-step"><option value="0">담임</option><option value="1">교무부장</option><option value="2">교감</option><option value="3">교장</option></select>
+        </label>
+        <label class="full" for="acc-password">임시 비밀번호 (8자 이상)<input id="acc-password" type="text" autocomplete="off" minlength="8" required /></label>
+        <label class="radio-line full" for="acc-manage"><input id="acc-manage" type="checkbox" /> 계정 관리 권한도 부여</label>
+        <p class="cell-note full">처음 로그인할 때 비밀번호를 바꾸도록 안내합니다. 임시 비밀번호는 본인에게만 전달하세요.</p>
+        <div class="form-actions"><button class="primary-button" id="create-account" type="submit">계정 만들기</button></div>
+      </form>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">관리자</p><h2>교직원 목록</h2></div></div>
+        <div id="staff-list" class="record-list"></div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="pw-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pw-title">
+  <form class="modal-card" id="pw-form">
+    <h2 id="pw-title">비밀번호 변경</h2>
+    <p id="pw-note" class="cell-note"></p>
+    <label class="full" for="pw-current">현재 비밀번호<input id="pw-current" type="password" autocomplete="current-password" required /></label>
+    <label class="full" for="pw-new">새 비밀번호 (8자 이상)<input id="pw-new" type="password" autocomplete="new-password" minlength="8" required /></label>
+    <label class="full" for="pw-new2">새 비밀번호 확인<input id="pw-new2" type="password" autocomplete="new-password" minlength="8" required /></label>
+    <p id="pw-error" role="alert" class="cell-note"></p>
+    <div class="form-actions">
+      <button class="primary-button" id="pw-save" type="submit">변경</button>
+      <button class="ghost-button" id="pw-cancel" type="button">취소</button>
+    </div>
+  </form>
+</div>
+
+<section id="print-sheet" aria-hidden="true"></section>
+<div id="toast" role="status" aria-live="polite"></div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
