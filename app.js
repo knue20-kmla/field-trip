@@ -186,7 +186,7 @@ function applyAppLock() {
       ? "일부 결재가 진행 중입니다. 지금 수정해서 제출하면 결재가 처음부터 다시 진행됩니다."
       : "아직 승인 전이라 수정할 수 있습니다. 고친 뒤 '수정 내용 제출'을 누르세요.";
     if (a.note) msg += `\n담당자 메모: ${a.note}`;
-    cls = "notice ready";
+    cls = started ? "notice" : "notice ready";
   }
   lock.hidden = !msg; lock.textContent = msg; lock.className = cls; lock.style.whiteSpace = "pre-wrap";
   $("#app-scroll").classList.toggle("form-disabled", locked);
@@ -441,10 +441,11 @@ function renderAll() {
 }
 
 /* ---------- 인쇄용 양식 → PDF ---------- */
+const paperHead = () => `<div class="paper-head"><img src="./logo.png" alt=""><div><strong>민족사관고등학교</strong><span>Korean Minjok Leadership Academy</span></div></div>`;
 function applicationHtml(app) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt), l = dateParts(app.leaveAt);
   const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
-  return `<article class="print-form"><h1>교외체험학습 신청서</h1><table>
+  return `<article class="print-form">${paperHead()}<h1>교외체험학습 신청서</h1><table>
     <tr><th>이름</th><td colspan="3">${escapeHtml(app.name)}</td><th>학번</th><td colspan="3">${escapeHtml(app.studentId)}</td></tr>
     <tr><th>학년/반</th><td colspan="3">${escapeHtml(app.grade)}학년 ${escapeHtml(app.classroom)}반 ${escapeHtml(app.number)}번</td><th>학습 형태</th><td colspan="3">${escapeHtml(app.learningType)}</td></tr>
     <tr><th>시작 일시</th><td colspan="7">${s.year}년 ${s.month}월 ${s.day}일 ${s.weekday}요일 ${s.hour}시 부터</td></tr>
@@ -460,7 +461,7 @@ function applicationHtml(app) {
 function reportHtml(app, report, photo) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt);
   const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
-  return `<article class="print-form"><h1>교외체험학습 결과 보고서</h1><table>
+  return `<article class="print-form">${paperHead()}<h1>교외체험학습 결과 보고서</h1><table>
     <tr><th>이름</th><td colspan="3">${escapeHtml(app.name)}</td><th>학번</th><td colspan="3">${escapeHtml(app.studentId)}</td></tr>
     <tr><th>학년/반</th><td colspan="7">${escapeHtml(app.grade)}학년 ${escapeHtml(app.classroom)}반 ${escapeHtml(app.number)}번</td></tr>
     <tr><th>시작 일시</th><td colspan="7">${s.year}년 ${s.month}월 ${s.day}일 ${s.weekday}요일 ${s.hour}시 부터</td></tr>
@@ -671,7 +672,7 @@ function showSignedOut(message = "") {
   unsubscribers.forEach((u) => u()); unsubscribers = [];
   recs = []; apprById = new Map(); staffList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null;
   $("#pw-modal").hidden = true;
-  $("#login-view").hidden = false; $("#app-main").hidden = true; $("#user-box").hidden = true;
+  $("#login-view").hidden = false; $("#app-shell").hidden = true; $("#user-box").hidden = true;
   $("#login-error").textContent = message;
 }
 function ingestRecords(snap) {
@@ -769,14 +770,18 @@ async function enterApp(user) {
   } else {
     myStaff = null; myEmail = user.email ?? ""; isAdmin = false;
   }
-  $("#login-view").hidden = true; $("#app-main").hidden = false; $("#user-box").hidden = false;
-  $("#user-email").textContent = myStaff ? `${myStaff.name} (${approvalSteps[myStaff.step]})` : myEmail;
-  $("#role-switch").hidden = !myStaff;
-  $('#role-switch [data-view="student"]').hidden = Boolean(myStaff);
+  $("#login-view").hidden = true; $("#app-shell").hidden = false; $("#user-box").hidden = false;
+  const displayName = myStaff ? myStaff.name : (user.displayName || myEmail.split("@")[0]);
+  $("#user-name").textContent = displayName;
+  $("#user-role").textContent = myStaff ? approvalSteps[myStaff.step] : "학생";
+  $("#user-avatar").textContent = (displayName || "?").trim().slice(0, 1).toUpperCase();
+  $('#role-switch [data-view="application"]').hidden = Boolean(myStaff);
+  $('#role-switch [data-view="report"]').hidden = Boolean(myStaff);
+  $('#role-switch [data-view="admin"]').hidden = !myStaff;
   $('#role-switch [data-view="accounts"]').hidden = !myStaff?.canManage;
   $("#change-password").hidden = !myStaff;
   showBanner("");
-  setView(myStaff ? "admin" : "student");
+  setView(myStaff ? "admin" : "application");
   const apps = collection(db, "applications"), appr = collection(db, "approvals");
   const watch = (ref, fn) => onSnapshot(ref, fn, (e) => { console.error(e); showBanner("내용을 불러오지 못했습니다. 페이지를 새로고침하세요."); });
   unsubscribers.push(

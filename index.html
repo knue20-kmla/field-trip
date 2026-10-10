@@ -3,33 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>교외체험학습 신청 관리</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap">
+<title>교외체험학습 신청서(결과보고서) 제출</title>
+<link rel="icon" type="image/png" href="./logo.png">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.css">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 
 
-<header class="topbar">
-  <div>
-    <p class="eyebrow">교외체험학습</p>
-    <h1>신청·결과보고 관리</h1>
+<header class="ws-top">
+  <div class="ws-brand">
+    <span class="logo-disc"><img src="./logo.png" alt="민족사관고등학교 로고" width="54" height="54"></span>
+    <div class="brand-text">
+      <span class="brand-school">민족사관고등학교</span>
+      <span class="brand-main">교외체험학습 신청서(결과보고서) 제출</span>
+    </div>
   </div>
-  <div class="user-box" id="user-box" hidden><span id="user-email"></span><div class="role-switch" id="role-switch" aria-label="화면 전환" hidden>
-    <button class="role-button active" data-view="student" type="button">학생</button>
-    <button class="role-button" data-view="admin" type="button">결재</button>
-    <button class="role-button" data-view="accounts" type="button" hidden>계정 관리</button>
-  </div><button class="ghost-button" id="change-password" type="button" hidden>비밀번호 변경</button><button class="ghost-button" id="sign-out" type="button">로그아웃</button></div>
+  <div class="ws-tools" id="user-box" hidden>
+    <div class="ws-user"><span class="ws-avatar" id="user-avatar"></span><span><span class="ws-uname" id="user-name"></span><span class="ws-urole" id="user-role"></span></span></div>
+    <button class="ws-btn ghost" id="change-password" type="button" hidden>비밀번호 변경</button>
+    <button class="ws-btn solid" id="sign-out" type="button">로그아웃</button>
+  </div>
 </header>
 
 <section class="login-view" id="login-view">
   <div class="login-card">
-    <div><p class="eyebrow">교외체험학습</p><h2>로그인</h2></div>
-    <div class="role-switch" id="login-tabs" role="tablist" aria-label="로그인 대상">
-      <button class="role-button active" data-login="student" type="button" role="tab">학생</button>
-      <button class="role-button" data-login="staff" type="button" role="tab">교직원</button>
+    <div class="login-brand">
+      <span class="logo-disc logo-lg"><img src="./logo.png" alt="민족사관고등학교 로고" width="96" height="96"></span>
+      <p class="eyebrow">민족사관고등학교</p>
+      <h1>로그인</h1>
+    </div>
+    <div class="login-tabs" id="login-tabs" role="tablist" aria-label="로그인 대상">
+      <button class="active" data-login="student" type="button" role="tab">학생</button>
+      <button data-login="staff" type="button" role="tab">교직원</button>
     </div>
     <div id="login-student" class="login-pane">
       <p>구글 계정으로 로그인합니다. 본인이 작성한 신청서만 보고 수정할 수 있습니다.</p>
@@ -45,7 +52,16 @@
   </div>
 </section>
 
-<main id="app-main" hidden>
+<div class="ws-body" id="app-shell" hidden>
+<nav class="ws-rail" id="role-switch" aria-label="메뉴">
+  <p class="rail-label">메뉴</p>
+  <button class="role-button rail-item active" data-view="application" type="button">신청서 작성</button>
+  <button class="role-button rail-item" data-view="report" type="button">결과보고서 작성</button>
+  <button class="role-button rail-item" data-view="admin" type="button" hidden>결재 관리</button>
+  <button class="role-button rail-item" data-view="accounts" type="button" hidden>계정 관리</button>
+</nav>
+
+<main id="app-main">
   <div class="banner" id="banner" hidden></div>
 
   <section class="summary-strip" aria-label="처리 현황">
@@ -55,13 +71,13 @@
     <div><span id="stat-report">0</span><strong>보고서 제출</strong></div>
   </section>
 
-  <section id="student-view" class="view active">
-    <div class="workspace-grid">
-      <form id="application-form" class="panel">
+  <section id="application-view" class="view active">
+    <div class="view-head"><h2>교외체험학습 신청서</h2><p>신청서를 작성해 제출하세요. 담임, 교무부장, 교감, 교장의 결재가 모두 끝나기 전에는 수정할 수 있습니다.</p></div>
+    <form id="application-form" class="panel">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">학생 입력</p>
-            <h2>체험학습 신청서</h2>
+            <p class="eyebrow">작성</p>
+            <h2>신청서 입력</h2>
           </div>
           <select id="my-record" aria-label="내 신청서 선택"></select>
         </div>
@@ -132,12 +148,15 @@
           <button class="ghost-button" id="delete-application" type="button">신청서 삭제</button>
         </div>
       </form>
+  </section>
 
-      <form id="report-form" class="panel">
+  <section id="report-view" class="view">
+    <div class="view-head"><h2>교외체험학습 결과보고서</h2><p>결재가 모두 끝난 신청서에 대해 체험을 마친 뒤 결과보고서와 활동 사진을 제출하세요.</p></div>
+    <form id="report-form" class="panel">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">학생 입력</p>
-            <h2>결과보고서</h2>
+            <p class="eyebrow">작성</p>
+            <h2>결과보고서 입력</h2>
           </div>
           <select id="report-record" aria-label="결과보고서를 쓸 신청서 선택"></select>
         </div>
@@ -171,7 +190,6 @@
           <button class="secondary-button" id="excel-report" type="button">결과보고서 엑셀 저장</button>
         </div>
       </form>
-    </div>
   </section>
 
   <section id="admin-view" class="view">
@@ -246,6 +264,7 @@
     </div>
   </section>
 </main>
+</div>
 
 <div class="modal" id="preview-modal" hidden role="dialog" aria-modal="true" aria-labelledby="preview-title">
   <div class="modal-card preview-card">
