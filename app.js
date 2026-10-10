@@ -341,6 +341,7 @@ function setReportEnabled(enabled, rec = null) {
   if (wasEditable !== editable) renderPhotoList();
   $("#evidence-photo").disabled = !editable || photoList.length >= MAX_PHOTOS;
   $("#pdf-report").disabled = !approved;
+  $("#preview-my-report").disabled = !enabled;
   $("#hwpx-report").disabled = !approved;
   $("#pdf-report").title = approved ? "" : "담임 선생님이 결과보고서를 승인하면 저장할 수 있습니다";
   reportFields.recordId.disabled = !myRecs().some(isApproved);
@@ -611,7 +612,6 @@ function signTableHtml(appr) {
 }
 function applicationHtml(app, appr = null) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt), l = dateParts(app.leaveAt);
-  const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
   return `<article class="print-form">${paperHead()}${signTableHtml(appr)}<h1>교외체험학습 신청서</h1><table>
     <tr><th>이름</th><td colspan="3">${escapeHtml(app.name)}</td><th>학번</th><td colspan="3">${escapeHtml(app.studentId)}</td></tr>
     <tr><th>학년/반</th><td colspan="3">${escapeHtml(app.grade)}학년 ${escapeHtml(app.classroom)}반 ${escapeHtml(app.number)}번</td><th>학습 형태</th><td colspan="3">${escapeHtml(app.learningType)}</td></tr>
@@ -623,7 +623,7 @@ function applicationHtml(app, appr = null) {
     <tr><th>동행자명</th><td>${escapeHtml(app.companionName)}</td><th>관계</th><td>${escapeHtml(app.relationship)}</td><th>비고</th><td colspan="3">${escapeHtml(app.note)}</td></tr>
     <tr><th>연락처</th><td colspan="2">학생 ${escapeHtml(app.studentPhone)}</td><td colspan="2">동행자 ${escapeHtml(app.companionPhone)}</td><td colspan="3">방문처 ${escapeHtml(app.visitContact)}</td></tr>
     <tr><th>학습계획</th><td class="print-large" colspan="7">${escapeHtml(dailyPlansText(app.dailyPlans ?? []))}</td></tr>
-    <tr><th>확인</th><td colspan="7">${sign}</td></tr></table></article>`;
+    </table></article>`;
 }
 function photoGridHtml(photos) {
   if (!photos?.length) return "";
@@ -635,7 +635,6 @@ function photoGridHtml(photos) {
 }
 function reportHtml(app, report, photos = [], appr = null, review = null) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt);
-  const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
   return `<article class="print-form">${paperHead()}${signTableHtml(appr)}<h1>교외체험학습 결과 보고서</h1><table>
     <tr><th>이름</th><td colspan="3">${escapeHtml(app.name)}</td><th>학번</th><td colspan="3">${escapeHtml(app.studentId)}</td></tr>
     <tr><th>학년/반</th><td colspan="7">${escapeHtml(app.grade)}학년 ${escapeHtml(app.classroom)}반 ${escapeHtml(app.number)}번</td></tr>
@@ -647,7 +646,7 @@ function reportHtml(app, report, photos = [], appr = null, review = null) {
     <tr><th>체험학습 결과보고란</th><td class="print-large" colspan="7">${escapeHtml(report.reportText)}</td></tr>
     <tr><th>활동인증 사진</th><td colspan="7">${photoGridHtml(photos)}</td></tr>
     ${review?.status === "approved" ? `<tr><th>결과보고서 검토</th><td colspan="7">담임 ${escapeHtml(review.by || "")} 승인 ${review.at ? `(${new Date(review.at).getFullYear()}.${new Date(review.at).getMonth() + 1}.${new Date(review.at).getDate()}.)` : ""}</td></tr>` : ""}
-    <tr><th>확인</th><td colspan="7">${sign}</td></tr></table></article>`;
+    </table></article>`;
 }
 async function htmlToPdf(html) {
   const host = $("#print-sheet");
@@ -852,6 +851,18 @@ $("#preview-report").addEventListener("click", async () => {
   const r = selectedAdminRec(); if (!r) return;
   if (!r.report?.submitted) return toast("아직 결과보고서가 제출되지 않았습니다.");
   openPreview(`${r.application.name || ""} 결과보고서 미리보기`, reportHtml(r.application, r.report, await loadPhotos(r), apprOf(r), reviewOf(r)));
+});
+$("#preview-my-app").addEventListener("click", () => {
+  const a = getApplicationFromForm();
+  if (myStudent) { a.grade = String(myStudent.grade ?? "").trim(); a.classroom = String(myStudent.classroom ?? "").trim(); }
+  const rec = currentMine();
+  openPreview(`${a.name || ""} 신청서 미리보기`, applicationHtml(a, rec ? apprOf(rec) : null));
+});
+$("#preview-my-report").addEventListener("click", () => {
+  const rec = findRec(myUid, reportFields.recordId.value);
+  if (!rec) return toast("결재가 모두 끝난 신청서가 있어야 결과보고서를 작성할 수 있습니다.");
+  openPreview(`${rec.application.name || ""} 결과보고서 미리보기`,
+    reportHtml(rec.application, reportFromForm(rec), photoList, apprOf(rec), reviewOf(rec)));
 });
 $("#preview-close").addEventListener("click", () => { $("#preview-modal").hidden = true; });
 $("#preview-modal").addEventListener("click", (e) => { if (e.target.id === "preview-modal") $("#preview-modal").hidden = true; });

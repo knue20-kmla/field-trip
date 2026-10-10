@@ -210,10 +210,6 @@ function planLines(plans = []) {
   });
   return out.length ? out : [""];
 }
-function footerRow() {
-  return { minH: 2600, cells: [th("확인"), { text: `${new Date().getFullYear()}년      월      일      어드바이저/지도교사 :                    (인)`, span: 3 }] };
-}
-
 export function buildApplicationSection(app, appr) {
   const rows = [
     { cells: [th("이름"), tdv(app.name), th("학번"), tdv(app.studentId)] },
@@ -228,7 +224,6 @@ export function buildApplicationSection(app, appr) {
     { cells: [th("방문처"), tdv(app.visitContact, 3)] },
     { cells: [th("비고"), tdv(app.note, 3)] },
     { minH: 9000, cells: [th("학습계획"), { lines: planLines(app.dailyPlans), span: 3, vertAlign: "TOP" }] },
-    footerRow(),
   ];
   return { body: titleParagraph("교외체험학습 신청서") + signTable(appr) + emptyPara() + tableParagraph(table({ widths: WID, rows })), images: [] };
 }
@@ -246,7 +241,6 @@ export function buildReportSection(app, report, appr, review, photos = []) {
     { minH: 12000, cells: [th("체험학습 결과보고란"), { lines: String(report.reportText ?? "").split("\n"), span: 3, vertAlign: "TOP" }] },
   ];
   if (review?.status === "approved") rows.push({ cells: [th("결과보고서 검토"), tdv(`담임 ${review.by || ""} 승인`, 3)] });
-  rows.push(footerRow());
   const images = [];
   const body = titleParagraph("교외체험학습 결과 보고서") + signTable(appr) + emptyPara() + tableParagraph(table({ widths: WID, rows }))
     + (photos.length ? emptyPara(600) + photoTable(photos, images) : "");
