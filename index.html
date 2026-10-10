@@ -20,6 +20,7 @@
       <span class="brand-main">교외체험학습 신청서(결과보고서) 제출</span>
     </div>
   </div>
+  <button class="ws-btn solid" id="open-login" type="button" hidden>로그인</button>
   <div class="ws-tools" id="user-box" hidden>
     <div class="ws-user"><span class="ws-avatar" id="user-avatar"></span><span><span class="ws-uname" id="user-name"></span><span class="ws-urole" id="user-role"></span></span></div>
     <button class="ws-btn ghost" id="change-password" type="button" hidden>비밀번호 변경</button>
@@ -27,8 +28,10 @@
   </div>
 </header>
 
-<section class="login-view" id="login-view">
+<section class="login-view" id="login-view" role="dialog" aria-modal="true" aria-label="로그인" hidden>
   <div class="login-card">
+    <button class="ghost-button login-close" id="login-close" type="button" aria-label="로그인 창 닫기">닫기</button>
+    <p class="login-reason" id="login-reason" hidden></p>
     <div class="login-brand">
       <span class="logo-disc logo-lg"><img src="./logo.png" alt="민족사관고등학교 로고" width="96" height="96"></span>
       <p class="eyebrow">민족사관고등학교</p>

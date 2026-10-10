@@ -31,6 +31,7 @@ const reportFields = {
 /* ---------- 상태 ---------- */
 let auth = null, db = null;
 let myUid = null, myEmail = "", isAdmin = false;
+let isGuest = false;            // 로그인하지 않고 둘러보는 중
 let myStaff = null;            // 교직원이면 { id, name, step, canManage, mustChange }
 let myStudent = null;
 let staffList = [];
@@ -231,7 +232,8 @@ function applyAppLock() {
   const lock = $("#app-lock");
   const a = rec ? apprOf(rec) : null;
   let msg = "", cls = "notice";
-  if (rec && locked) { msg = "결재가 모두 끝난 신청서는 수정할 수 없습니다."; cls = "notice ready"; }
+  if (isGuest) { msg = "로그인하면 신청서를 작성하고 제출할 수 있습니다. 입력하려는 순간 로그인 창이 나타납니다."; cls = "notice"; }
+  else if (rec && locked) { msg = "결재가 모두 끝난 신청서는 수정할 수 없습니다."; cls = "notice ready"; }
   else if (a?.rejected) { msg = `반려되었습니다. 내용을 고쳐 다시 제출하세요.${a.note ? `\n담당자 메모: ${a.note}` : ""}`; cls = "notice danger"; }
   else if (rec) {
     const started = a.steps.some((s) => s.approved);
@@ -327,7 +329,7 @@ function setReportEnabled(enabled, rec = null) {
   const rv = rec ? reviewOf(rec) : { status: "none", note: "" };
   const approved = enabled && rv.status === "approved";
   const editable = enabled && !approved;
-  let msg = "담당자 결재가 모두 완료된 신청서만 결과보고서를 작성할 수 있습니다.", cls = "notice";
+  let msg = isGuest ? "로그인하면 결재가 끝난 신청서에 대해 결과보고서를 작성할 수 있습니다." : "담당자 결재가 모두 완료된 신청서만 결과보고서를 작성할 수 있습니다.", cls = "notice";
   if (enabled) {
     if (rv.status === "approved") { msg = "담임 선생님이 결과보고서를 승인했습니다. 더 이상 수정할 수 없습니다."; cls = "notice ready"; }
     else if (rv.status === "rejected") { msg = `결과보고서가 반려되었습니다. 내용을 고쳐 다시 제출하세요.${rv.note ? `\n담임 메모: ${rv.note}` : ""}`; cls = "notice danger"; }
@@ -595,6 +597,8 @@ function renderAll() {
   renderReportSelector();
   applyAppLock();
   if (isAdmin) { renderRecords(); renderAdminDetail(); }
+  // 로그인 전에는 입력칸을 잠그지 않는다. 눌러 보면 로그인 창이 뜨도록 하기 위해서다.
+  if (isGuest) $$("#application-form input, #application-form select, #application-form textarea, #application-form button, #report-form input, #report-form select, #report-form textarea, #report-form button").forEach((n) => { n.disabled = false; });
 }
 
 /* ---------- 인쇄용 양식 → PDF ---------- */
@@ -900,9 +904,32 @@ function showSignedOut(message = "") {
   unsubscribers.forEach((u) => u()); unsubscribers = [];
   recs = []; apprById = new Map(); reviewById = new Map(); staffList = []; studentList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
   $("#pw-modal").hidden = true; $("#profile-modal").hidden = true;
-  $("#login-view").hidden = false; $("#app-shell").hidden = true; $("#user-box").hidden = true;
+  enterGuest(message || lastLoginMessage);
   $("#login-error").textContent = message || lastLoginMessage;
 }
+function enterGuest(message = "") {
+  isGuest = true;
+  $("#app-shell").hidden = false; $("#user-box").hidden = true; $("#open-login").hidden = false;
+  document.querySelector(".summary-strip").hidden = true;
+  $('#role-switch [data-view="application"]').hidden = false;
+  $('#role-switch [data-view="report"]').hidden = false;
+  $('#role-switch [data-view="admin"]').hidden = true;
+  $('#role-switch [data-view="accounts"]').hidden = true;
+  showBanner("");
+  setView("application");
+  fillApplicationForm(null);
+  renderAll();
+  if (message) openLogin(""); else $("#login-view").hidden = true;
+}
+/* 로그인 팝업 */
+function openLogin(reason = "") {
+  const r = $("#login-reason");
+  r.textContent = reason; r.hidden = !reason;
+  $("#login-view").hidden = false;
+  const pane = $("#login-student").hidden ? "#staff-id" : "#student-email";
+  setTimeout(() => $(pane)?.focus(), 30);
+}
+function closeLogin() { $("#login-view").hidden = true; $("#login-error").textContent = ""; }
 function ingestRecords(snap) {
   recs = snap.docs.map((d) => {
     const it = d.data();
@@ -1222,7 +1249,9 @@ async function enterApp(user) {
     await rejectLogin("이메일과 비밀번호로 로그인해 주세요.");
     return;
   }
-  $("#login-view").hidden = true; $("#app-shell").hidden = false; $("#user-box").hidden = false;
+  isGuest = false;
+  $("#login-view").hidden = true; $("#app-shell").hidden = false; $("#user-box").hidden = false; $("#open-login").hidden = true;
+  document.querySelector(".summary-strip").hidden = false;
   const displayName = myStaff ? myStaff.name : (myStudent?.name || myEmail.split("@")[0]);
   $("#user-name").textContent = displayName;
   $("#user-role").textContent = myStaff ? `${approvalSteps[myStaff.step]}${myStaff.step === 0 ? ` · ${myStaff.grade ?? "-"}학년 ${myStaff.classroom ?? "-"}반` : ""}` : "학생";
@@ -1297,6 +1326,20 @@ async function enterApp(user) {
 }
 
 function start() {
+  $("#open-login").addEventListener("click", () => openLogin(""));
+  $("#login-close").addEventListener("click", closeLogin);
+  $("#login-view").addEventListener("click", (e) => { if (e.target.id === "login-view") closeLogin(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#login-view").hidden) closeLogin(); });
+  const guestGuard = (e) => {
+    if (!isGuest || !$("#login-view").hidden) return;
+    const form = e.target.closest?.("#application-form, #report-form");
+    if (!form) return;
+    e.preventDefault(); e.stopPropagation();
+    e.target.blur?.();
+    openLogin(form.id === "report-form" ? "결과보고서를 작성하려면 로그인이 필요합니다." : "신청서를 작성하려면 로그인이 필요합니다.");
+  };
+  document.addEventListener("focusin", guestGuard, true);
+  document.addEventListener("click", guestGuard, true);
   $$("#login-tabs [data-login]").forEach((b) => b.addEventListener("click", () => {
     $$("#login-tabs [data-login]").forEach((x) => x.classList.toggle("active", x === b));
     $("#login-student").hidden = b.dataset.login !== "student";
@@ -1307,6 +1350,7 @@ function start() {
   }));
   if (!firebaseConfig?.apiKey || firebaseConfig.apiKey.startsWith("YOUR_")) {
     $("#login-error").textContent = "firebase-config.js에 Firebase 설정이 아직 입력되지 않았습니다. README.md의 설정 순서를 따라 주세요.";
+    $("#login-view").hidden = false;
     $("#sign-in").disabled = true; $("#student-signup-button").disabled = true; $("#staff-sign-in").disabled = true; $("#teacher-signup-button").disabled = true;
     return;
   }
