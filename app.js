@@ -192,6 +192,8 @@ function applyAppLock() {
   $("#app-scroll").classList.toggle("form-disabled", locked);
   $$("#application-form input, #application-form select, #application-form textarea").forEach((n) => { if (n.type !== "hidden" && n.id !== "my-record") n.disabled = locked; });
   $("#submit-application").disabled = locked;
+  $("#pdf-application").disabled = !locked;          // 최종 결재가 끝난 신청서만 PDF 저장
+  $("#pdf-application").title = locked ? "" : "최종 결재가 끝나면 저장할 수 있습니다";
   $("#submit-application").textContent = rec ? "수정 내용 제출" : "신청서 제출";
   $("#delete-application").hidden = !rec || locked;
 }
@@ -393,6 +395,11 @@ function renderAdminDetail() {
   const img = $("#admin-photo");
   img.hidden = true;
   if (r.hasPhoto) loadPhoto(rec).then((p) => { if (p?.data && keyOf(rec) === selectedAdminKey) { img.src = p.data; img.hidden = false; } });
+  // PDF는 최종 결재(4단계 모두 승인)가 끝난 뒤에만 저장할 수 있다.
+  const done = isApproved(rec);
+  $("#pdf-selected-app").disabled = !done;
+  $("#pdf-selected-report").disabled = !done || !r.submitted;
+  $("#pdf-hint").textContent = done ? "" : "PDF는 4단계 결재가 모두 끝난 뒤에 저장할 수 있습니다. 미리보기는 언제든 볼 수 있습니다.";
 }
 async function saveApproval(rec, patch) {
   const cur = apprOf(rec);
@@ -552,7 +559,11 @@ function reportFromForm(rec) {
 }
 function bindExport(btn, make) { btn.addEventListener("click", () => withButton(btn, async () => { const r = await make(); if (r) saveFile(r.name, r.data); })); }
 
-bindExport($("#pdf-application"), async () => { const a = getApplicationFromForm(); return { name: `신청서_${safeName(a.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(a)) }; });
+bindExport($("#pdf-application"), async () => {
+  const rec = currentMine();
+  if (!rec || !isApproved(rec)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
+  return { name: `신청서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(rec.application)) };
+});
 bindExport($("#excel-application"), async () => { const a = getApplicationFromForm(); return { name: `신청서_${safeName(a.name)}_${dateTag()}.xlsx`, data: workbookBuffer("신청서", sheetFromRows(applicationRows(a), [16, 36, 16, 30])) }; });
 bindExport($("#pdf-report"), async () => {
   const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
@@ -564,10 +575,15 @@ bindExport($("#excel-report"), async () => {
   const r = reportFromForm(rec);
   return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.xlsx`, data: workbookBuffer("결과보고서", sheetFromRows(reportRows(rec.application, { ...r, photoName: pendingPhoto?.name ?? r.photoName }), [16, 36, 16, 30])) };
 });
-bindExport($("#pdf-selected-app"), async () => { const r = selectedAdminRec(); return r && { name: `신청서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(r.application)) }; });
+bindExport($("#pdf-selected-app"), async () => {
+  const r = selectedAdminRec(); if (!r) return null;
+  if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
+  return { name: `신청서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(r.application)) };
+});
 bindExport($("#excel-selected-app"), async () => { const r = selectedAdminRec(); return r && { name: `신청서_${safeName(r.application.name)}_${dateTag()}.xlsx`, data: workbookBuffer("신청서", sheetFromRows(applicationRows(r.application), [16, 36, 16, 30])) }; });
 bindExport($("#pdf-selected-report"), async () => {
   const r = selectedAdminRec(); if (!r) return null;
+  if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
   if (!r.report?.submitted) { toast("아직 결과보고서가 제출되지 않았습니다."); return null; }
   return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(r.application, r.report, await loadPhoto(r))) };
 });
@@ -613,6 +629,24 @@ reportFields.evidencePhoto.addEventListener("change", async () => {
   try { pendingPhoto = await resizePhoto(file); renderPhotoBox($("#photo-preview"), pendingPhoto); }
   catch { toast("사진을 읽지 못했습니다. 다른 사진을 선택하세요."); }
 });
+function openPreview(title, html) {
+  $("#preview-title").textContent = title;
+  $("#preview-body").innerHTML = html;
+  $("#preview-modal").hidden = false;
+  $("#preview-modal .modal-card").scrollTop = 0;
+}
+$("#preview-app").addEventListener("click", () => {
+  const r = selectedAdminRec(); if (!r) return;
+  openPreview(`${r.application.name || ""} 신청서 미리보기`, applicationHtml(r.application));
+});
+$("#preview-report").addEventListener("click", async () => {
+  const r = selectedAdminRec(); if (!r) return;
+  if (!r.report?.submitted) return toast("아직 결과보고서가 제출되지 않았습니다.");
+  openPreview(`${r.application.name || ""} 결과보고서 미리보기`, reportHtml(r.application, r.report, await loadPhoto(r)));
+});
+$("#preview-close").addEventListener("click", () => { $("#preview-modal").hidden = true; });
+$("#preview-modal").addEventListener("click", (e) => { if (e.target.id === "preview-modal") $("#preview-modal").hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#preview-modal").hidden = true; });
 $("#save-note").addEventListener("click", saveNote);
 $("#reject-record").addEventListener("click", rejectRecord);
 

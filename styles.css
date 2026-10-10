@@ -177,3 +177,10 @@ body { margin: 0; }
   .staff-item div { min-width: 0; }
   .staff-item span { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   .approval-step button:disabled { opacity: 0.45; }
+
+  /* 미리보기 */
+  .preview-card { width: min(860px, 100%); }
+  .preview-paper { background: #fff; color: #000; border: 1px solid var(--line-strong); border-radius: 6px; padding: 28px; overflow-x: auto; font-family: var(--font); }
+  .preview-paper .print-form h1 { text-align: center; font-size: 22px; margin: 0 0 18px; color: #000; }
+  #pdf-hint:empty { display: none; }
+  #pdf-hint { margin-top: 8px; margin-bottom: 0; }

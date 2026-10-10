@@ -213,11 +213,14 @@
           <div class="form-actions">
             <button class="primary-button" id="save-note" type="button">메모 저장</button>
             <button class="secondary-button" id="reject-record" type="button">반려</button>
+            <button class="secondary-button" id="preview-app" type="button">신청서 미리보기</button>
+            <button class="secondary-button" id="preview-report" type="button">결과보고서 미리보기</button>
             <button class="secondary-button" id="pdf-selected-app" type="button">신청서 PDF</button>
             <button class="secondary-button" id="excel-selected-app" type="button">신청서 엑셀</button>
             <button class="secondary-button" id="pdf-selected-report" type="button">결과보고서 PDF</button>
             <button class="secondary-button" id="excel-selected-report" type="button">결과보고서 엑셀</button>
           </div>
+          <p class="cell-note" id="pdf-hint"></p>
         </div>
       </section>
     </div>
@@ -243,6 +246,16 @@
     </div>
   </section>
 </main>
+
+<div class="modal" id="preview-modal" hidden role="dialog" aria-modal="true" aria-labelledby="preview-title">
+  <div class="modal-card preview-card">
+    <div class="panel-heading">
+      <h2 id="preview-title">미리보기</h2>
+      <button class="ghost-button" id="preview-close" type="button">닫기</button>
+    </div>
+    <div class="preview-paper" id="preview-body"></div>
+  </div>
+</div>
 
 <div class="modal" id="pw-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pw-title">
   <form class="modal-card" id="pw-form">
