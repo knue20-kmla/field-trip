@@ -412,10 +412,8 @@ function renderAdminDetail() {
     </div>`).join("");
   renderDefinitionList($("#application-detail"), [
     ["신청자", rec.ownerEmail], ["학습 형태", a.learningType], ["기간", `${fmtDateTime(a.startAt)} ~ ${fmtDateTime(a.endAt)}`],
-    ["학교출발", fmtDateTime(a.leaveAt)], ["장소", a.place], ["주제", a.subject],
     ["동행자", `${a.companionName || ""} ${a.relationship ? `(${a.relationship})` : ""}`],
     ["연락처", `학생 ${a.studentPhone || "-"}\n동행자 ${a.companionPhone || "-"}\n방문처 ${a.visitContact || "-"}`],
-    ["일별 계획", dailyPlansText(a.dailyPlans ?? [])], ["비고", a.note],
   ]);
   renderDefinitionList($("#report-detail"), [
     ["제출", r.submitted ? fmtDateTime(r.submittedAt) : "미제출"],
