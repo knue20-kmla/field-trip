@@ -4,6 +4,7 @@ import { getAuth, EmailAuthProvider, onAuthStateChanged, signInWithEmailAndPassw
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { buildApplicationSection, buildReportSection, packHwpx, dataUrlToBytes, jpegSize } from "./hwpx.js";
 import * as appCfg from "./firebase-config.js";
 const firebaseConfig = appCfg.firebaseConfig;
 const MAIL_ENDPOINT = appCfg.mailEndpoint ?? "";
@@ -245,6 +246,7 @@ function applyAppLock() {
   $$("#application-form input, #application-form select, #application-form textarea").forEach((n) => { if (n.type !== "hidden" && n.id !== "my-record") n.disabled = locked; });
   $("#submit-application").disabled = locked;
   $("#pdf-application").disabled = !locked;          // 최종 결재가 끝난 신청서만 PDF 저장
+  $("#hwpx-application").disabled = !locked;         // 한글 파일도 같은 조건
   $("#pdf-application").title = locked ? "" : "최종 결재가 끝나면 저장할 수 있습니다";
   $("#submit-application").textContent = rec ? "수정 내용 제출" : "신청서 제출";
   $("#delete-application").hidden = !rec || locked;
@@ -339,6 +341,7 @@ function setReportEnabled(enabled, rec = null) {
   if (wasEditable !== editable) renderPhotoList();
   $("#evidence-photo").disabled = !editable || photoList.length >= MAX_PHOTOS;
   $("#pdf-report").disabled = !approved;
+  $("#hwpx-report").disabled = !approved;
   $("#pdf-report").title = approved ? "" : "담임 선생님이 결과보고서를 승인하면 저장할 수 있습니다";
   reportFields.recordId.disabled = !myRecs().some(isApproved);
 }
@@ -483,6 +486,7 @@ function renderAdminDetail() {
   // PDF는 최종 결재(4단계 모두 승인)가 끝난 뒤에만 저장할 수 있다.
   const done = isApproved(rec);
   $("#pdf-selected-app").disabled = !done;
+  $("#hwpx-selected-app").disabled = !done;
   const rv = reviewOf(rec);
   const canReview = r.submitted && Boolean(myStaff?.canManage || (isHomeroomStaff() && canStaffReadRec(rec)));
   $("#report-review").hidden = !canReview;
@@ -490,6 +494,7 @@ function renderAdminDetail() {
   $("#approve-report").textContent = rv.status === "approved" ? "결과보고서 승인됨" : "결과보고서 승인";
   const reportOk = r.submitted && rv.status === "approved";
   $("#pdf-selected-report").disabled = !reportOk;
+  $("#hwpx-selected-report").disabled = !reportOk;
   const rejectedNow = apprOf(rec).rejected;
   $("#delete-rejected").hidden = !(rejectedNow && (myStaff?.canManage || (isHomeroomStaff() && canStaffReadRec(rec))));
   $("#pdf-hint").textContent = !done ? "PDF는 4단계 결재가 모두 끝난 뒤에 저장할 수 있습니다. 미리보기는 언제든 볼 수 있습니다."
@@ -694,6 +699,29 @@ function listRows() {
   return [head, ...body];
 }
 
+/* ---------- 한글(HWPX) ---------- */
+let hwpxHeader = null;
+async function loadHwpxHeader() {
+  if (!hwpxHeader) {
+    const res = await fetch("./hwpx-assets/header.xml");
+    if (!res.ok) throw new Error("hwpx header");
+    hwpxHeader = (await res.text()).replace('secCnt="3"', 'secCnt="1"');
+  }
+  return hwpxHeader;
+}
+async function applicationHwpx(rec) {
+  const built = buildApplicationSection(rec.application, apprOf(rec));
+  return packHwpx(JSZip, { header: await loadHwpxHeader(), bodyXml: built.body, images: built.images, title: "교외체험학습 신청서",
+    previewText: `교외체험학습 신청서 ${rec.application.name ?? ""}` });
+}
+async function reportHwpx(rec) {
+  const list = await loadPhotos(rec);
+  const photos = list.map((p, i) => { const bytes = dataUrlToBytes(p.data); const sz = jpegSize(bytes); return { name: p.name || `사진${i + 1}.jpg`, bytes, w: sz.w, h: sz.h }; });
+  const built = buildReportSection(rec.application, rec.report, apprOf(rec), reviewOf(rec), photos);
+  return packHwpx(JSZip, { header: await loadHwpxHeader(), bodyXml: built.body, images: built.images, title: "교외체험학습 결과보고서",
+    previewText: `교외체험학습 결과보고서 ${rec.application.name ?? ""}` });
+}
+
 /* ---------- 파일 저장 (브라우저 다운로드) ---------- */
 function saveFile(filename, data) {
   const blob = data instanceof Blob ? data : new Blob([data]);
@@ -718,6 +746,28 @@ function reportFromForm(rec) {
 }
 function bindExport(btn, make) { btn.addEventListener("click", () => withButton(btn, async () => { const r = await make(); if (r) saveFile(r.name, r.data); })); }
 
+bindExport($("#hwpx-application"), async () => {
+  const rec = currentMine();
+  if (!rec || !isApproved(rec)) { toast("최종 결재가 끝난 뒤에 저장할 수 있습니다."); return null; }
+  return { name: `신청서_${safeName(rec.application.name)}_${dateTag()}.hwpx`, data: await applicationHwpx(rec) };
+});
+bindExport($("#hwpx-report"), async () => {
+  const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
+  if (reviewOf(rec).status !== "approved") { toast("담임 선생님이 결과보고서를 승인한 뒤에 저장할 수 있습니다."); return null; }
+  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.hwpx`, data: await reportHwpx(rec) };
+});
+bindExport($("#hwpx-selected-app"), async () => {
+  const r = selectedAdminRec(); if (!r) return null;
+  if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 저장할 수 있습니다."); return null; }
+  return { name: `신청서_${safeName(r.application.name)}_${dateTag()}.hwpx`, data: await applicationHwpx(r) };
+});
+bindExport($("#hwpx-selected-report"), async () => {
+  const r = selectedAdminRec(); if (!r) return null;
+  if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 저장할 수 있습니다."); return null; }
+  if (!r.report?.submitted) { toast("아직 결과보고서가 제출되지 않았습니다."); return null; }
+  if (reviewOf(r).status !== "approved") { toast("결과보고서를 승인한 뒤에 저장할 수 있습니다."); return null; }
+  return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.hwpx`, data: await reportHwpx(r) };
+});
 bindExport($("#pdf-application"), async () => {
   const rec = currentMine();
   if (!rec || !isApproved(rec)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }

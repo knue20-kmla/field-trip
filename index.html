@@ -170,6 +170,7 @@
         <div class="form-actions">
           <button class="primary-button" id="submit-application" type="submit">신청서 제출</button>
           <button class="secondary-button" id="pdf-application" type="button">신청서 PDF 저장</button>
+          <button class="secondary-button" id="hwpx-application" type="button">신청서 한글 저장</button>
           <button class="ghost-button" id="new-application" type="button">새 신청</button>
           <button class="ghost-button" id="delete-application" type="button">신청서 삭제</button>
         </div>
@@ -214,6 +215,7 @@
         <div class="form-actions">
           <button class="primary-button" id="submit-report" type="submit">결과보고서 제출</button>
           <button class="secondary-button" id="pdf-report" type="button">결과보고서 PDF 저장</button>
+          <button class="secondary-button" id="hwpx-report" type="button">결과보고서 한글 저장</button>
         </div>
       </form>
   </section>
@@ -270,6 +272,8 @@
             <button class="secondary-button" id="preview-report" type="button">결과보고서 미리보기</button>
             <button class="secondary-button" id="pdf-selected-app" type="button">신청서 PDF</button>
             <button class="secondary-button" id="pdf-selected-report" type="button">결과보고서 PDF</button>
+            <button class="secondary-button" id="hwpx-selected-app" type="button">신청서 한글</button>
+            <button class="secondary-button" id="hwpx-selected-report" type="button">결과보고서 한글</button>
           </div>
           <p class="cell-note" id="pdf-hint"></p>
         </div>
@@ -366,6 +370,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script type="module" src="./app.js?v=manager-accounts-20261010"></script>
 </body>
 </html>
