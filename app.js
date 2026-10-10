@@ -418,11 +418,8 @@ function renderAdminDetail() {
   renderDefinitionList($("#report-detail"), [
     ["제출", r.submitted ? fmtDateTime(r.submittedAt) : "미제출"],
     ["일시 일치", r.timeMatch === "different" ? "일치하지 않습니다." : "일치합니다."],
-    ["실제 시간", r.actualTime], ["변동 이유", r.changeReason], ["보고 내용", r.reportText], ["증빙 사진", r.photoName],
+    ["실제 시간", r.actualTime], ["변동 이유", r.changeReason],
   ]);
-  const img = $("#admin-photo");
-  img.hidden = true;
-  if (r.hasPhoto) loadPhoto(rec).then((p) => { if (p?.data && keyOf(rec) === selectedAdminKey) { img.src = p.data; img.hidden = false; } });
   // PDF는 최종 결재(4단계 모두 승인)가 끝난 뒤에만 저장할 수 있다.
   const done = isApproved(rec);
   $("#pdf-selected-app").disabled = !done;
