@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isStudent() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(/databases/$(database)/documents/students/$(request.auth.uid));
+    }
+    function isStaff() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+    function isPasswordAuth() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+    function myStaff() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid)).data;
+    }
+    function isManager() {
+      return isStaff() && myStaff().canManage == true;
+    }
+    function isOwner(data) {
+      return isStudent() && data.ownerUid == request.auth.uid;
+    }
+    function isHomeroomTeacher() {
+      return isStaff() && myStaff().step == 0;
+    }
+    function homeroomMatches(data) {
+      return isHomeroomTeacher()
+        && data.application.grade == myStaff().grade
+        && data.application.classroom == myStaff().classroom;
+    }
+    function canReadApplication(data) {
+      return isOwner(data)
+        || (isStaff() && myStaff().step in [1, 2, 3])
+        || homeroomMatches(data);
+    }
+    function canReadApplicationId(appId) {
+      return exists(/databases/$(database)/documents/applications/$(appId))
+        && canReadApplication(get(/databases/$(database)/documents/applications/$(appId)).data);
+    }
+
+    function fullyApproved(appId, rev) {
+      let p = /databases/$(database)/documents/approvals/$(appId);
+      return exists(p)
+        && get(p).data.appRev == rev
+        && get(p).data.rejected == false
+        && get(p).data.steps.size() == 4
+        && get(p).data.steps[0].approved == true
+        && get(p).data.steps[1].approved == true
+        && get(p).data.steps[2].approved == true
+        && get(p).data.steps[3].approved == true;
+    }
+    function keep(o, n, my, i) { return i == my || n[i] == o[i]; }
+    function othersUnchanged(o, n, my) {
+      return keep(o, n, my, 0) && keep(o, n, my, 1) && keep(o, n, my, 2) && keep(o, n, my, 3);
+    }
+    function off(n, my, i) { return i == my || n[i].approved == false; }
+    function othersNotApproved(n, my) {
+      return off(n, my, 0) && off(n, my, 1) && off(n, my, 2) && off(n, my, 3);
+    }
+
+    match /students/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow create: if isPasswordAuth()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'grade', 'classroom', 'phone', 'email', 'createdAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.name is string
+        && request.resource.data.grade is string
+        && request.resource.data.classroom is string
+        && request.resource.data.phone is string;
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'grade', 'classroom', 'phone']);
+      allow delete: if false;
+    }
+
+    match /staff/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || isManager());
+      allow list: if isManager();
+      allow create:
+        if (request.auth != null
+              && isPasswordAuth()
+              && request.auth.uid == uid
+              && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'selfRegistered', 'createdAt'])
+              && request.resource.data.step == 0
+              && request.resource.data.canManage == false
+              && request.resource.data.mustChange == false
+              && request.resource.data.grade is string
+              && request.resource.data.classroom is string)
+        || (isManager()
+              && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'createdAt'])
+              && request.resource.data.step in [0, 1, 2, 3]);
+      allow update:
+        if (request.auth.uid == uid && isStaff()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange'])
+              && request.resource.data.mustChange == false)
+        || (isManager()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'step', 'mustChange']));
+      allow delete: if isManager() && request.auth.uid != uid;
+    }
+
+    match /applications/{appId} {
+      allow read: if canReadApplication(resource.data);
+
+      allow create: if isStudent()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'ownerEmail', 'createdAt', 'rev', 'application', 'report', 'updatedAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerEmail == request.auth.token.email
+        && request.resource.data.rev == 1
+        && request.resource.data.report.submitted == false;
+
+      allow update: if isOwner(resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerEmail == resource.data.ownerEmail
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.keys().hasOnly(['ownerUid', 'ownerEmail', 'createdAt', 'rev', 'application', 'report', 'updatedAt'])
+        && (
+          (!fullyApproved(appId, resource.data.rev)
+            && request.resource.data.rev == resource.data.rev + 1
+            && request.resource.data.report == resource.data.report)
+          ||
+          (fullyApproved(appId, resource.data.rev)
+            && request.resource.data.rev == resource.data.rev
+            && request.resource.data.application == resource.data.application)
+        );
+
+      allow delete: if isOwner(resource.data) && !fullyApproved(appId, resource.data.rev);
+    }
+
+    match /approvals/{appId} {
+      allow read: if isOwner(resource.data) || (isStaff() && canReadApplicationId(appId));
+
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'appRev', 'steps', 'rejected', 'note', 'homeroomGrade', 'homeroomClassroom', 'homeroomKey', 'updatedAt'])
+        && exists(/databases/$(database)/documents/applications/$(appId))
+        && canReadApplicationId(appId)
+        && request.resource.data.appRev == get(/databases/$(database)/documents/applications/$(appId)).data.rev
+        && request.resource.data.ownerUid == get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid
+        && request.resource.data.steps.size() == 4
+        && othersNotApproved(request.resource.data.steps, myStaff().step);
+
+      allow update: if isStaff()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'appRev', 'steps', 'rejected', 'note', 'homeroomGrade', 'homeroomClassroom', 'homeroomKey', 'updatedAt'])
+        && canReadApplicationId(appId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.appRev == get(/databases/$(database)/documents/applications/$(appId)).data.rev
+        && request.resource.data.steps.size() == 4
+        && (request.resource.data.appRev == resource.data.appRev
+              ? othersUnchanged(resource.data.steps, request.resource.data.steps, myStaff().step)
+              : othersNotApproved(request.resource.data.steps, myStaff().step));
+
+      allow delete: if isManager();
+    }
+
+    match /photos/{appId} {
+      allow read: if isOwner(resource.data) || (isStaff() && canReadApplicationId(appId));
+      allow create, update: if isStudent()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'name', 'data'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.data.size() < 400000
+        && exists(/databases/$(database)/documents/applications/$(appId))
+        && get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid == request.auth.uid;
+      allow delete: if isManager() || isOwner(resource.data);
+    }
+  }
+}

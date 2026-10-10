@@ -202,6 +202,9 @@ dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .login-tabs button.active { background: var(--panel); color: var(--ink); font-weight: 800; box-shadow: 0 1px 4px rgba(71, 48, 32, 0.14); }
 #login-error:empty { display: none; }
 #login-error, #pw-error { color: var(--danger); font-weight: 600; }
+.signup-divider { display: flex; align-items: center; gap: 10px; margin-top: 4px; color: var(--muted); font-size: 13px; font-weight: 800; }
+.signup-divider::before, .signup-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+.compact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
 /* ===== 창(모달) ===== */
 .modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(10, 14, 20, 0.6); }

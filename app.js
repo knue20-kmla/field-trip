@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, EmailAuthProvider, onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword,
+import { getAuth, EmailAuthProvider, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, reauthenticateWithCredential, updatePassword, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp }
@@ -29,6 +29,7 @@ const reportFields = {
 let auth = null, db = null;
 let myUid = null, myEmail = "", isAdmin = false;
 let myStaff = null;            // 교직원이면 { id, name, step, canManage, mustChange }
+let myStudent = null;
 let staffList = [];
 let appConfig = null;
 let recs = [];                 // 화면에 보이는 신청 (학생: 내 것, 담당자: 전체)
@@ -42,6 +43,8 @@ const photoCache = new Map();
 let reportFilledKey = "";
 let busy = false;
 let chain = Promise.resolve();
+let teacherSignupInProgress = false;
+let studentSignupInProgress = false;
 
 const emptyReport = () => ({ submitted: false, timeMatch: "match", actualTime: "", changeReason: "", reportText: "", hasPhoto: false, photoName: "", submittedAt: "" });
 const keyOf = (r) => `${r.uid}/${r.id}`;
@@ -97,6 +100,23 @@ function dailyPlansText(plans = []) {
   return plans.map((p) => `${fmtDate(p.date)}\n${p.plan}`).join("\n\n");
 }
 function safeName(s) { return String(s || "").replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 40); }
+function staffHomeroomKey(staff = myStaff) {
+  return staff?.step === 0 ? `${String(staff.grade ?? "").trim()}-${String(staff.classroom ?? "").trim()}` : "";
+}
+function appHomeroomKey(rec) {
+  return `${String(rec?.application?.grade ?? "").trim()}-${String(rec?.application?.classroom ?? "").trim()}`;
+}
+function isHomeroomStaff(staff = myStaff) {
+  return staff?.step === 0;
+}
+function canStaffReadRec(rec, staff = myStaff) {
+  if (!staff) return false;
+  return staff.step > 0 || appHomeroomKey(rec) === staffHomeroomKey(staff);
+}
+function canStaffApproveRec(rec, step = myStaff?.step) {
+  if (!myStaff || step !== myStaff.step) return false;
+  return !isHomeroomStaff() || canStaffReadRec(rec);
+}
 
 /* ---------- 결재 상태 (담당자만 쓰는 approvals 문서 + 신청서 개정번호 rev) ---------- */
 function apprOf(rec) {
@@ -167,7 +187,15 @@ function fillApplicationForm(rec) {
   fields.id.value = rec?.id ?? "";
   const a = rec?.application ?? {};
   Object.entries(fields).forEach(([k, n]) => { if (k !== "id") n.value = a[k] ?? ""; });
-  if (!rec) { fields.learningType.value = "개인여행"; fields.relationship.value = "부모님"; }
+  if (!rec) {
+    fields.learningType.value = "개인여행"; fields.relationship.value = "부모님";
+    if (myStudent) {
+      fields.name.value = myStudent.name ?? "";
+      fields.grade.value = myStudent.grade ?? "";
+      fields.classroom.value = myStudent.classroom ?? "";
+      fields.studentPhone.value = myStudent.phone ?? "";
+    }
+  }
   renderDailyPlanInputs(a.dailyPlans ?? []);
   applyAppLock();
 }
@@ -343,6 +371,7 @@ async function submitReport(event) {
 /* ---------- 담당자 화면 ---------- */
 function filteredRecs() {
   return recs.filter((r) => {
+    if (myStaff && !canStaffReadRec(r)) return false;
     if (currentFilter === "all") return true;
     if (currentFilter === "approved") return isApproved(r);
     if (currentFilter === "rejected") return apprOf(r).rejected;
@@ -378,7 +407,7 @@ function renderAdminDetail() {
     <div class="approval-step">
       <strong>${escapeHtml(approvalSteps[i])}${i === myStaff?.step ? " (나)" : ""}</strong>
       <p>${s.approved ? escapeHtml(fmtDateTime(s.at)) : "대기"}</p>
-      <button class="${s.approved ? "secondary-button" : "primary-button"}" data-step="${i}" type="button" ${i === myStaff?.step ? "" : "disabled"}>${s.approved ? "승인 취소" : "승인"}</button>
+      <button class="${s.approved ? "secondary-button" : "primary-button"}" data-step="${i}" type="button" ${canStaffApproveRec(rec, i) ? "" : "disabled"}>${s.approved ? "승인 취소" : "승인"}</button>
     </div>`).join("");
   renderDefinitionList($("#application-detail"), [
     ["신청자", rec.ownerEmail], ["학습 형태", a.learningType], ["기간", `${fmtDateTime(a.startAt)} ~ ${fmtDateTime(a.endAt)}`],
@@ -405,12 +434,17 @@ async function saveApproval(rec, patch) {
   const cur = apprOf(rec);
   await setDoc(doc(db, "approvals", rec.id), {
     ownerUid: rec.uid, appRev: rec.rev, steps: patch.steps ?? cur.steps,
-    rejected: patch.rejected ?? cur.rejected, note: patch.note ?? cur.note, updatedAt: serverTimestamp(),
+    rejected: patch.rejected ?? cur.rejected, note: patch.note ?? cur.note,
+    homeroomGrade: String(rec.application?.grade ?? "").trim(),
+    homeroomClassroom: String(rec.application?.classroom ?? "").trim(),
+    homeroomKey: appHomeroomKey(rec),
+    updatedAt: serverTimestamp(),
   });
 }
 async function toggleApproval(index) {
   const rec = selectedAdminRec(); if (!rec) return;
   if (index !== myStaff?.step) return toast(`${approvalSteps[index]} 단계는 해당 담당자만 처리할 수 있습니다.`);
+  if (!canStaffApproveRec(rec, index)) return toast("담임은 본인 학년/반 신청서만 승인할 수 있습니다.");
   const steps = apprOf(rec).steps.map((s) => ({ ...s }));
   const s = steps[index];
   s.approved = !s.approved; s.at = s.approved ? new Date().toISOString() : "";
@@ -670,7 +704,7 @@ function setView(name) {
 }
 function showSignedOut(message = "") {
   unsubscribers.forEach((u) => u()); unsubscribers = [];
-  recs = []; apprById = new Map(); staffList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null;
+  recs = []; apprById = new Map(); staffList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
   $("#pw-modal").hidden = true;
   $("#login-view").hidden = false; $("#app-shell").hidden = true; $("#user-box").hidden = true;
   $("#login-error").textContent = message;
@@ -719,7 +753,7 @@ function renderStaffList() {
   list.innerHTML = staffList.length ? staffList.map((s) => `
     <div class="staff-item">
       <div><strong>${escapeHtml(s.name)} · ${escapeHtml(approvalSteps[s.step] ?? "")}</strong>
-        <span>아이디 ${escapeHtml(s.id)}${s.canManage ? " · 계정 관리 권한" : ""}${s.mustChange ? " · 비밀번호 변경 전" : ""}</span></div>
+        <span>아이디 ${escapeHtml(s.id)}${s.step === 0 ? ` · ${escapeHtml(s.grade ?? "-")}학년 ${escapeHtml(s.classroom ?? "-")}반` : ""}${s.canManage ? " · 계정 관리 권한" : ""}${s.mustChange ? " · 비밀번호 변경 전" : ""}</span></div>
       ${s.uid === myUid ? "" : `<button class="ghost-button" data-del="${escapeHtml(s.uid)}" type="button">삭제</button>`}
     </div>`).join("") : `<div class="empty-state">등록된 교직원이 없습니다.</div>`;
 }
@@ -727,8 +761,10 @@ async function createAccount(event) {
   event.preventDefault();
   const id = $("#acc-id").value.trim().toLowerCase(), name = $("#acc-name").value.trim();
   const pw = $("#acc-password").value, step = Number($("#acc-step").value);
+  const grade = $("#acc-grade").value.trim(), classroom = $("#acc-classroom").value.trim();
   if (!/^[a-z0-9._-]{4,20}$/.test(id)) return toast("아이디는 영문 소문자, 숫자, . _ - 로 4~20자여야 합니다.");
   if (pw.length < 8) return toast("임시 비밀번호는 8자 이상이어야 합니다.");
+  if (step === 0 && (!grade || !classroom)) return toast("담임 계정은 학년과 반을 입력해야 합니다.");
   const btn = $("#create-account"); btn.disabled = true;
   try {
     // 현재 로그인(관리자)을 유지한 채 새 계정을 만들기 위해 별도 앱 인스턴스를 쓴다.
@@ -736,7 +772,15 @@ async function createAccount(event) {
     const sAuth = getAuth(secondary);
     const cred = await createUserWithEmailAndPassword(sAuth, staffEmail(id), pw);
     try {
-      await setDoc(doc(db, "staff", cred.user.uid), { id, name, step, canManage: $("#acc-manage").checked, mustChange: true, createdAt: new Date().toISOString() });
+      await setDoc(doc(db, "staff", cred.user.uid), {
+        id, name, step,
+        grade: step === 0 ? grade : "",
+        classroom: step === 0 ? classroom : "",
+        homeroomKey: step === 0 ? `${grade}-${classroom}` : "",
+        canManage: $("#acc-manage").checked,
+        mustChange: true,
+        createdAt: new Date().toISOString(),
+      });
     } catch (e) {
       await signOut(sAuth);
       throw Object.assign(new Error("staff-doc"), { code: "staff-doc" });
@@ -747,6 +791,66 @@ async function createAccount(event) {
   } catch (e) {
     console.error(e);
     toast(e.code === "staff-doc" ? "계정은 만들어졌지만 교직원 등록에 실패했습니다. 같은 아이디를 Firebase 콘솔에서 삭제한 뒤 다시 만드세요." : authErrorText(e));
+  } finally { btn.disabled = false; }
+}
+async function signupTeacher(event) {
+  event.preventDefault();
+  const id = $("#teacher-id").value.trim().toLowerCase();
+  const name = $("#teacher-name").value.trim();
+  const grade = $("#teacher-grade").value.trim();
+  const classroom = $("#teacher-classroom").value.trim();
+  const pw = $("#teacher-password").value;
+  if (!/^[a-z0-9._-]{4,20}$/.test(id)) return toast("아이디는 영문 소문자, 숫자, . _ - 로 4~20자여야 합니다.");
+  if (!name || !grade || !classroom) return toast("이름, 담임 학년, 담임 반을 모두 입력하세요.");
+  if (pw.length < 8) return toast("비밀번호는 8자 이상이어야 합니다.");
+  const btn = $("#teacher-signup-button"); btn.disabled = true;
+  teacherSignupInProgress = true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, staffEmail(id), pw);
+    await setDoc(doc(db, "staff", cred.user.uid), {
+      id, name, step: 0, grade, classroom, homeroomKey: `${grade}-${classroom}`,
+      canManage: false, mustChange: false, selfRegistered: true, createdAt: new Date().toISOString(),
+    });
+    $("#teacher-signup").reset();
+    $("#staff-password").value = "";
+    teacherSignupInProgress = false;
+    await enterApp(cred.user);
+    toast(`${grade}학년 ${classroom}반 담임 권한으로 가입했습니다.`);
+  } catch (e) {
+    teacherSignupInProgress = false;
+    console.error(e);
+    $("#login-error").textContent = authErrorText(e);
+  } finally { btn.disabled = false; }
+}
+async function signupStudent(event) {
+  event.preventDefault();
+  const name = $("#signup-student-name").value.trim();
+  const grade = $("#signup-student-grade").value.trim();
+  const classroom = $("#signup-student-classroom").value.trim();
+  const phone = $("#signup-student-phone").value.trim();
+  const email = $("#signup-student-email").value.trim();
+  const pw = $("#signup-student-password").value;
+  if (!name || !grade || !classroom || !phone || !email) return toast("이름, 학년, 반, 전화번호, 이메일을 모두 입력하세요.");
+  if (pw.length < 8) return toast("비밀번호는 8자 이상이어야 합니다.");
+  const btn = $("#student-signup-button"); btn.disabled = true;
+  studentSignupInProgress = true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pw);
+    await setDoc(doc(db, "students", cred.user.uid), {
+      name, grade, classroom, phone, email,
+      createdAt: new Date().toISOString(),
+    });
+    myStudent = { name, grade, classroom, phone, email };
+    myEmail = email;
+    $("#student-signup").reset();
+    $("#student-password").value = "";
+    studentSignupInProgress = false;
+    await enterApp(cred.user);
+    toast("학생 회원가입을 완료했습니다.");
+  } catch (e) {
+    studentSignupInProgress = false;
+    console.error(e);
+    $("#login-error").textContent = authErrorText(e);
   } finally { btn.disabled = false; }
 }
 async function deleteStaff(uid, button) {
@@ -760,20 +864,34 @@ async function deleteStaff(uid, button) {
 }
 
 async function enterApp(user) {
+  if (teacherSignupInProgress || studentSignupInProgress) return;
+  if (myUid === user.uid && !$("#app-shell").hidden) return;
   myUid = user.uid;
   const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
   if (isPasswordUser) {
-    let snap = null;
-    try { snap = await getDoc(doc(db, "staff", myUid)); } catch (e) { console.error(e); }
-    if (!snap?.exists()) { await signOut(auth); showSignedOut("교직원으로 등록되지 않은 계정입니다. 담당자에게 문의하세요."); return; }
-    myStaff = snap.data(); myEmail = ""; isAdmin = true;
+    let staffSnap = null, studentSnap = null;
+    try {
+      [staffSnap, studentSnap] = await Promise.all([
+        getDoc(doc(db, "staff", myUid)),
+        getDoc(doc(db, "students", myUid)),
+      ]);
+    } catch (e) { console.error(e); }
+    if (staffSnap?.exists()) {
+      myStaff = staffSnap.data(); myStudent = null; myEmail = ""; isAdmin = true;
+    } else if (studentSnap?.exists()) {
+      myStaff = null; myStudent = studentSnap.data(); myEmail = myStudent.email ?? user.email ?? ""; isAdmin = false;
+    } else {
+      await signOut(auth); showSignedOut("등록되지 않은 계정입니다. 학생은 회원가입을 먼저 진행해 주세요.");
+      return;
+    }
   } else {
-    myStaff = null; myEmail = user.email ?? ""; isAdmin = false;
+    await signOut(auth); showSignedOut("이메일과 비밀번호로 로그인해 주세요.");
+    return;
   }
   $("#login-view").hidden = true; $("#app-shell").hidden = false; $("#user-box").hidden = false;
-  const displayName = myStaff ? myStaff.name : (user.displayName || myEmail.split("@")[0]);
+  const displayName = myStaff ? myStaff.name : (myStudent?.name || myEmail.split("@")[0]);
   $("#user-name").textContent = displayName;
-  $("#user-role").textContent = myStaff ? approvalSteps[myStaff.step] : "학생";
+  $("#user-role").textContent = myStaff ? `${approvalSteps[myStaff.step]}${myStaff.step === 0 ? ` · ${myStaff.grade ?? "-"}학년 ${myStaff.classroom ?? "-"}반` : ""}` : "학생";
   $("#user-avatar").textContent = (displayName || "?").trim().slice(0, 1).toUpperCase();
   $('#role-switch [data-view="application"]').hidden = Boolean(myStaff);
   $('#role-switch [data-view="report"]').hidden = Boolean(myStaff);
@@ -783,10 +901,20 @@ async function enterApp(user) {
   showBanner("");
   setView(myStaff ? "admin" : "application");
   const apps = collection(db, "applications"), appr = collection(db, "approvals");
+  const appRef = isAdmin
+    ? (isHomeroomStaff()
+      ? query(apps, where("application.grade", "==", String(myStaff.grade ?? "").trim()), where("application.classroom", "==", String(myStaff.classroom ?? "").trim()))
+      : apps)
+    : query(apps, where("ownerUid", "==", myUid));
+  const apprRef = isAdmin
+    ? (isHomeroomStaff()
+      ? query(appr, where("homeroomKey", "==", staffHomeroomKey()))
+      : appr)
+    : query(appr, where("ownerUid", "==", myUid));
   const watch = (ref, fn) => onSnapshot(ref, fn, (e) => { console.error(e); showBanner("내용을 불러오지 못했습니다. 페이지를 새로고침하세요."); });
   unsubscribers.push(
-    watch(isAdmin ? apps : query(apps, where("ownerUid", "==", myUid)), (snap) => { ingestRecords(snap); renderAll(); }),
-    watch(isAdmin ? appr : query(appr, where("ownerUid", "==", myUid)), (snap) => {
+    watch(appRef, (snap) => { ingestRecords(snap); renderAll(); }),
+    watch(apprRef, (snap) => {
       apprById = new Map(snap.docs.map((d) => [d.id, d.data()])); renderAll();
     }),
   );
@@ -805,21 +933,26 @@ function start() {
   $$("#login-tabs [data-login]").forEach((b) => b.addEventListener("click", () => {
     $$("#login-tabs [data-login]").forEach((x) => x.classList.toggle("active", x === b));
     $("#login-student").hidden = b.dataset.login !== "student";
+    $("#student-signup").hidden = b.dataset.login !== "student";
     $("#login-staff").hidden = b.dataset.login !== "staff";
+    $("#teacher-signup").hidden = b.dataset.login !== "staff";
     $("#login-error").textContent = "";
   }));
   if (!firebaseConfig?.apiKey || firebaseConfig.apiKey.startsWith("YOUR_")) {
     $("#login-error").textContent = "firebase-config.js에 Firebase 설정이 아직 입력되지 않았습니다. README.md의 설정 순서를 따라 주세요.";
-    $("#sign-in").disabled = true; $("#staff-sign-in").disabled = true;
+    $("#sign-in").disabled = true; $("#student-signup-button").disabled = true; $("#staff-sign-in").disabled = true; $("#teacher-signup-button").disabled = true;
     return;
   }
   appConfig = firebaseConfig;
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app); db = getFirestore(app);
-  $("#sign-in").addEventListener("click", async () => {
+  $("#login-student").addEventListener("submit", async (event) => {
+    event.preventDefault();
     $("#login-error").textContent = "";
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-    catch (e) { if (e?.code !== "auth/popup-closed-by-user") $("#login-error").textContent = "로그인하지 못했습니다. 팝업 차단을 해제하고 다시 시도해 주세요."; }
+    const btn = $("#sign-in"); btn.disabled = true;
+    try { await signInWithEmailAndPassword(auth, $("#student-email").value.trim(), $("#student-password").value); $("#student-password").value = ""; }
+    catch (e) { $("#login-error").textContent = authErrorText(e); }
+    finally { btn.disabled = false; }
   });
   $("#login-staff").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -830,12 +963,18 @@ function start() {
     catch (e) { $("#login-error").textContent = authErrorText(e); }
     finally { btn.disabled = false; }
   });
+  $("#student-signup").addEventListener("submit", signupStudent);
+  $("#teacher-signup").addEventListener("submit", signupTeacher);
+  $("#acc-step").addEventListener("change", () => {
+    $("#acc-homeroom-row").hidden = $("#acc-step").value !== "0";
+  });
+  $("#acc-step").dispatchEvent(new Event("change"));
   $("#sign-out").addEventListener("click", () => signOut(auth));
   $("#change-password").addEventListener("click", () => openPasswordModal(false));
   $("#pw-form").addEventListener("submit", submitPassword);
   $("#pw-cancel").addEventListener("click", () => { if (!pwForced) $("#pw-modal").hidden = true; });
   $("#account-form").addEventListener("submit", createAccount);
   $("#staff-list").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (b) deleteStaff(b.dataset.del, b); });
-  onAuthStateChanged(auth, (user) => { if (user) enterApp(user); else showSignedOut(); });
+  onAuthStateChanged(auth, (user) => { if (user) enterApp(user); else if (!teacherSignupInProgress && !studentSignupInProgress) showSignedOut(); });
 }
 start();

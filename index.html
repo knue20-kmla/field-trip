@@ -38,15 +38,41 @@
       <button class="active" data-login="student" type="button" role="tab">학생</button>
       <button data-login="staff" type="button" role="tab">교직원</button>
     </div>
-    <div id="login-student" class="login-pane">
-      <p>구글 계정으로 로그인합니다. 본인이 작성한 신청서만 보고 수정할 수 있습니다.</p>
-      <button class="primary-button" id="sign-in" type="button">구글 계정으로 로그인</button>
-    </div>
+    <form id="login-student" class="login-pane">
+      <p>가입한 이메일과 비밀번호로 로그인합니다. 본인이 작성한 신청서만 보고 수정할 수 있습니다.</p>
+      <label class="full" for="student-email">이메일<input id="student-email" type="email" autocomplete="username" required /></label>
+      <label class="full" for="student-password">비밀번호<input id="student-password" type="password" autocomplete="current-password" required /></label>
+      <button class="primary-button" id="sign-in" type="submit">학생 로그인</button>
+    </form>
+    <form id="student-signup" class="login-pane">
+      <div class="signup-divider"><span>학생 회원가입</span></div>
+      <label class="full" for="signup-student-name">이름<input id="signup-student-name" autocomplete="name" required /></label>
+      <div class="compact-grid">
+        <label for="signup-student-grade">학년<input id="signup-student-grade" inputmode="numeric" required /></label>
+        <label for="signup-student-classroom">반<input id="signup-student-classroom" inputmode="numeric" required /></label>
+      </div>
+      <label class="full" for="signup-student-phone">전화번호<input id="signup-student-phone" autocomplete="tel" required /></label>
+      <label class="full" for="signup-student-email">이메일<input id="signup-student-email" type="email" autocomplete="email" required /></label>
+      <label class="full" for="signup-student-password">비밀번호 (8자 이상)<input id="signup-student-password" type="password" autocomplete="new-password" minlength="8" required /></label>
+      <button class="secondary-button" id="student-signup-button" type="submit">학생 회원가입</button>
+    </form>
     <form id="login-staff" class="login-pane" hidden>
-      <p>담임, 교무부장, 교감, 교장 선생님은 발급받은 아이디로 로그인합니다.</p>
+      <p>담임 선생님은 아래에서 직접 가입할 수 있습니다. 교무부장, 교감, 교장 계정은 관리자가 발급합니다.</p>
       <label class="full" for="staff-id">아이디<input id="staff-id" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
       <label class="full" for="staff-password">비밀번호<input id="staff-password" type="password" autocomplete="current-password" required /></label>
       <button class="primary-button" id="staff-sign-in" type="submit">로그인</button>
+    </form>
+    <form id="teacher-signup" class="login-pane" hidden>
+      <div class="signup-divider"><span>담임 회원가입</span></div>
+      <label class="full" for="teacher-name">이름<input id="teacher-name" autocomplete="name" required /></label>
+      <div class="compact-grid">
+        <label for="teacher-grade">담임 학년<input id="teacher-grade" inputmode="numeric" required /></label>
+        <label for="teacher-classroom">담임 반<input id="teacher-classroom" inputmode="numeric" required /></label>
+      </div>
+      <label class="full" for="teacher-id">아이디 (영문 소문자, 숫자, . _ - 4~20자)<input id="teacher-id" autocomplete="username" autocapitalize="none" spellcheck="false" required pattern="[a-z0-9._\-]{4,20}" /></label>
+      <label class="full" for="teacher-password">비밀번호 (8자 이상)<input id="teacher-password" type="password" autocomplete="new-password" minlength="8" required /></label>
+      <button class="secondary-button" id="teacher-signup-button" type="submit">담임 권한으로 가입</button>
+      <p class="cell-note full">가입한 담임은 입력한 학년/반 학생의 신청서만 검토하고 담임 단계 승인만 처리할 수 있습니다.</p>
     </form>
     <p id="login-error" role="alert"></p>
   </div>
@@ -252,6 +278,10 @@
         <label class="full" for="acc-step">결재 단계
           <select id="acc-step"><option value="0">담임</option><option value="1">교무부장</option><option value="2">교감</option><option value="3">교장</option></select>
         </label>
+        <div class="compact-grid" id="acc-homeroom-row">
+          <label for="acc-grade">담임 학년<input id="acc-grade" inputmode="numeric" /></label>
+          <label for="acc-classroom">담임 반<input id="acc-classroom" inputmode="numeric" /></label>
+        </div>
         <label class="full" for="acc-password">임시 비밀번호 (8자 이상)<input id="acc-password" type="text" autocomplete="off" minlength="8" required /></label>
         <label class="radio-line full" for="acc-manage"><input id="acc-manage" type="checkbox" /> 계정 관리 권한도 부여</label>
         <p class="cell-note full">처음 로그인할 때 비밀번호를 바꾸도록 안내합니다. 임시 비밀번호는 본인에게만 전달하세요.</p>
