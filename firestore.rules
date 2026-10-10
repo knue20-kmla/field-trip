@@ -37,6 +37,7 @@ service cloud.firestore {
     }
     function canReadApplication(data) {
       return isOwner(data)
+        || isManager()
         || (isStaff() && myStaff().step in [1, 2, 3])
         || homeroomMatches(data);
     }
@@ -70,7 +71,8 @@ service cloud.firestore {
 
     // ---- 교직원 명단 ----
     match /students/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid;
+      allow get: if (request.auth != null && request.auth.uid == uid) || isManager();
+      allow list: if isManager();
       allow create: if isPasswordAuth()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['name', 'grade', 'classroom', 'phone', 'email', 'createdAt'])
@@ -82,16 +84,16 @@ service cloud.firestore {
       allow update: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'grade', 'classroom', 'phone']);
-      allow delete: if false;
+      allow delete: if isManager();
     }
 
     // ---- 교직원 명단 ----
     match /staff/{uid} {
       allow get: if request.auth != null && (request.auth.uid == uid || isManager());
       allow list: if isManager();
-      allow create:
-        // 담임 자가 가입: 본인 문서만 만들 수 있고, 담임(step 0) 권한만 받는다.
-        if (request.auth != null
+      // 담임 자가 가입: 본인 문서만 만들 수 있고, 담임(step 0) 권한만 받는다.
+      // 관리자 생성: 담임 계정에는 학년/반을 넣고, 상위 결재자는 비워 둘 수 있다.
+      allow create: if (request.auth != null
               && isPasswordAuth()
               && request.auth.uid == uid
               && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'selfRegistered', 'createdAt'])
@@ -100,16 +102,14 @@ service cloud.firestore {
               && request.resource.data.mustChange == false
               && request.resource.data.grade is string
               && request.resource.data.classroom is string)
-        // 관리자 생성: 담임 계정에는 학년/반을 넣고, 상위 결재자는 비워 둘 수 있다.
         || (isManager()
               && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'createdAt'])
               && request.resource.data.step in [0, 1, 2, 3]);
-      allow update:
-        // 본인: 비밀번호를 바꾼 뒤 mustChange만 false로
-        if (request.auth.uid == uid && isStaff()
+      // 본인: 비밀번호를 바꾼 뒤 mustChange만 false로
+      // 관리자: 이름, 단계, 변경 안내 여부
+      allow update: if (request.auth.uid == uid && isStaff()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange'])
               && request.resource.data.mustChange == false)
-        // 관리자: 이름, 단계, 변경 안내 여부
         || (isManager()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'step', 'mustChange']));
       allow delete: if isManager() && request.auth.uid != uid;

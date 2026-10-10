@@ -34,6 +34,7 @@ service cloud.firestore {
     }
     function canReadApplication(data) {
       return isOwner(data)
+        || isManager()
         || (isStaff() && myStaff().step in [1, 2, 3])
         || homeroomMatches(data);
     }
@@ -63,7 +64,8 @@ service cloud.firestore {
     }
 
     match /students/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid;
+      allow get: if (request.auth != null && request.auth.uid == uid) || isManager();
+      allow list: if isManager();
       allow create: if isPasswordAuth()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['name', 'grade', 'classroom', 'phone', 'email', 'createdAt'])
@@ -75,14 +77,13 @@ service cloud.firestore {
       allow update: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'grade', 'classroom', 'phone']);
-      allow delete: if false;
+      allow delete: if isManager();
     }
 
     match /staff/{uid} {
       allow get: if request.auth != null && (request.auth.uid == uid || isManager());
       allow list: if isManager();
-      allow create:
-        if (request.auth != null
+      allow create: if (request.auth != null
               && isPasswordAuth()
               && request.auth.uid == uid
               && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'selfRegistered', 'createdAt'])
@@ -94,8 +95,7 @@ service cloud.firestore {
         || (isManager()
               && request.resource.data.keys().hasOnly(['id', 'name', 'step', 'grade', 'classroom', 'homeroomKey', 'canManage', 'mustChange', 'createdAt'])
               && request.resource.data.step in [0, 1, 2, 3]);
-      allow update:
-        if (request.auth.uid == uid && isStaff()
+      allow update: if (request.auth.uid == uid && isStaff()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange'])
               && request.resource.data.mustChange == false)
         || (isManager()

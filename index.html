@@ -272,7 +272,7 @@
   <section id="accounts-view" class="view">
     <div class="workspace-grid">
       <form id="account-form" class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">관리자</p><h2>교직원 계정 만들기</h2></div></div>
+        <div class="panel-heading"><div><p class="eyebrow">전체 관리자</p><h2>교직원 계정 만들기</h2></div></div>
         <label class="full" for="acc-name">이름<input id="acc-name" required /></label>
         <label class="full" for="acc-id">아이디 (영문 소문자, 숫자, . _ - 4~20자)<input id="acc-id" autocomplete="off" autocapitalize="none" spellcheck="false" required pattern="[a-z0-9._\-]{4,20}" /></label>
         <label class="full" for="acc-step">결재 단계
@@ -288,8 +288,13 @@
         <div class="form-actions"><button class="primary-button" id="create-account" type="submit">계정 만들기</button></div>
       </form>
       <section class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">관리자</p><h2>교직원 목록</h2></div></div>
+        <div class="panel-heading"><div><p class="eyebrow">전체 관리자</p><h2>교직원 목록</h2></div></div>
         <div id="staff-list" class="record-list"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">전체 관리자</p><h2>학생 목록</h2></div></div>
+        <p class="cell-note">학생 등록을 삭제하면 해당 학생은 더 이상 로그인할 수 없습니다. Firebase Authentication 사용자 자체 삭제나 비밀번호 재설정은 Firebase 콘솔에서 처리해야 합니다.</p>
+        <div id="student-list" class="record-list"></div>
       </section>
     </div>
   </section>

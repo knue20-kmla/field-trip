@@ -31,6 +31,7 @@ let myUid = null, myEmail = "", isAdmin = false;
 let myStaff = null;            // 교직원이면 { id, name, step, canManage, mustChange }
 let myStudent = null;
 let staffList = [];
+let studentList = [];
 let appConfig = null;
 let recs = [];                 // 화면에 보이는 신청 (학생: 내 것, 담당자: 전체)
 let apprById = new Map();      // 신청서 id -> {appRev, steps, rejected, note}
@@ -111,7 +112,7 @@ function isHomeroomStaff(staff = myStaff) {
 }
 function canStaffReadRec(rec, staff = myStaff) {
   if (!staff) return false;
-  return staff.step > 0 || appHomeroomKey(rec) === staffHomeroomKey(staff);
+  return staff.canManage || staff.step > 0 || appHomeroomKey(rec) === staffHomeroomKey(staff);
 }
 function canStaffApproveRec(rec, step = myStaff?.step) {
   if (!myStaff || step !== myStaff.step) return false;
@@ -704,7 +705,7 @@ function setView(name) {
 }
 function showSignedOut(message = "") {
   unsubscribers.forEach((u) => u()); unsubscribers = [];
-  recs = []; apprById = new Map(); staffList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
+  recs = []; apprById = new Map(); staffList = []; studentList = []; loaded = false; myUid = null; isAdmin = false; myStaff = null; myStudent = null; myEmail = "";
   $("#pw-modal").hidden = true;
   $("#login-view").hidden = false; $("#app-shell").hidden = true; $("#user-box").hidden = true;
   $("#login-error").textContent = message;
@@ -754,8 +755,22 @@ function renderStaffList() {
     <div class="staff-item">
       <div><strong>${escapeHtml(s.name)} · ${escapeHtml(approvalSteps[s.step] ?? "")}</strong>
         <span>아이디 ${escapeHtml(s.id)}${s.step === 0 ? ` · ${escapeHtml(s.grade ?? "-")}학년 ${escapeHtml(s.classroom ?? "-")}반` : ""}${s.canManage ? " · 계정 관리 권한" : ""}${s.mustChange ? " · 비밀번호 변경 전" : ""}</span></div>
-      ${s.uid === myUid ? "" : `<button class="ghost-button" data-del="${escapeHtml(s.uid)}" type="button">삭제</button>`}
+      <div class="list-actions">
+        ${s.uid === myUid ? "" : `<button class="ghost-button" data-reset-staff="${escapeHtml(s.uid)}" type="button">변경 요청</button><button class="ghost-button" data-del="${escapeHtml(s.uid)}" type="button">삭제</button>`}
+      </div>
     </div>`).join("") : `<div class="empty-state">등록된 교직원이 없습니다.</div>`;
+}
+function renderStudentList() {
+  const list = $("#student-list");
+  list.innerHTML = studentList.length ? studentList.map((s) => `
+    <div class="staff-item">
+      <div><strong>${escapeHtml(s.name)} · ${escapeHtml(s.grade ?? "-")}학년 ${escapeHtml(s.classroom ?? "-")}반</strong>
+        <span>${escapeHtml(s.email ?? "")}${s.phone ? ` · ${escapeHtml(s.phone)}` : ""}</span></div>
+      <div class="list-actions">
+        <button class="ghost-button" data-reset-student="${escapeHtml(s.uid)}" type="button">초기화 안내</button>
+        <button class="ghost-button" data-del-student="${escapeHtml(s.uid)}" type="button">삭제</button>
+      </div>
+    </div>`).join("") : `<div class="empty-state">등록된 학생이 없습니다.</div>`;
 }
 async function createAccount(event) {
   event.preventDefault();
@@ -862,6 +877,32 @@ async function deleteStaff(uid, button) {
   try { await deleteDoc(doc(db, "staff", uid)); toast("교직원 등록을 삭제했습니다. 이 계정은 더 이상 결재할 수 없습니다."); }
   catch (e) { console.error(e); toast(explainError(e)); }
 }
+async function requirePasswordChange(uid, button) {
+  if (button.dataset.confirm !== "1") {
+    button.dataset.confirm = "1"; button.textContent = "한 번 더 누르면 요청";
+    setTimeout(() => { button.dataset.confirm = ""; button.textContent = "변경 요청"; }, 4000);
+    return;
+  }
+  try {
+    await updateDoc(doc(db, "staff", uid), { mustChange: true });
+    toast("다음 로그인 때 비밀번호 변경을 요청합니다.");
+  } catch (e) { console.error(e); toast(explainError(e)); }
+}
+function showStudentPasswordGuide(uid) {
+  const s = studentList.find((item) => item.uid === uid);
+  toast(`${s?.name ?? "학생"} 비밀번호는 Firebase 콘솔 > Authentication > Users에서 재설정하거나 사용자를 삭제 후 재가입하게 해 주세요.`);
+}
+async function deleteStudent(uid, button) {
+  if (button.dataset.confirm !== "1") {
+    button.dataset.confirm = "1"; button.textContent = "한 번 더 누르면 삭제";
+    setTimeout(() => { button.dataset.confirm = ""; button.textContent = "삭제"; }, 4000);
+    return;
+  }
+  try {
+    await deleteDoc(doc(db, "students", uid));
+    toast("학생 등록을 삭제했습니다. Authentication 사용자는 Firebase 콘솔에서 별도로 삭제할 수 있습니다.");
+  } catch (e) { console.error(e); toast(explainError(e)); }
+}
 
 async function enterApp(user) {
   if (teacherSignupInProgress || studentSignupInProgress) return;
@@ -902,12 +943,16 @@ async function enterApp(user) {
   setView(myStaff ? "admin" : "application");
   const apps = collection(db, "applications"), appr = collection(db, "approvals");
   const appRef = isAdmin
-    ? (isHomeroomStaff()
+    ? (myStaff?.canManage
+      ? apps
+      : isHomeroomStaff()
       ? query(apps, where("application.grade", "==", String(myStaff.grade ?? "").trim()), where("application.classroom", "==", String(myStaff.classroom ?? "").trim()))
       : apps)
     : query(apps, where("ownerUid", "==", myUid));
   const apprRef = isAdmin
-    ? (isHomeroomStaff()
+    ? (myStaff?.canManage
+      ? appr
+      : isHomeroomStaff()
       ? query(appr, where("homeroomKey", "==", staffHomeroomKey()))
       : appr)
     : query(appr, where("ownerUid", "==", myUid));
@@ -922,6 +967,10 @@ async function enterApp(user) {
     unsubscribers.push(watch(collection(db, "staff"), (snap) => {
       staffList = snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => a.step - b.step || String(a.name).localeCompare(String(b.name), "ko"));
       renderStaffList();
+    }));
+    unsubscribers.push(watch(collection(db, "students"), (snap) => {
+      studentList = snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => String(a.grade ?? "").localeCompare(String(b.grade ?? ""), "ko", { numeric: true }) || String(a.classroom ?? "").localeCompare(String(b.classroom ?? ""), "ko", { numeric: true }) || String(a.name ?? "").localeCompare(String(b.name ?? ""), "ko"));
+      renderStudentList();
     }));
   }
   fillApplicationForm(null);
@@ -974,7 +1023,14 @@ function start() {
   $("#pw-form").addEventListener("submit", submitPassword);
   $("#pw-cancel").addEventListener("click", () => { if (!pwForced) $("#pw-modal").hidden = true; });
   $("#account-form").addEventListener("submit", createAccount);
-  $("#staff-list").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (b) deleteStaff(b.dataset.del, b); });
+  $("#staff-list").addEventListener("click", (e) => {
+    const del = e.target.closest("button[data-del]"); if (del) deleteStaff(del.dataset.del, del);
+    const reset = e.target.closest("button[data-reset-staff]"); if (reset) requirePasswordChange(reset.dataset.resetStaff, reset);
+  });
+  $("#student-list").addEventListener("click", (e) => {
+    const del = e.target.closest("button[data-del-student]"); if (del) deleteStudent(del.dataset.delStudent, del);
+    const reset = e.target.closest("button[data-reset-student]"); if (reset) showStudentPasswordGuide(reset.dataset.resetStudent);
+  });
   onAuthStateChanged(auth, (user) => { if (user) enterApp(user); else if (!teacherSignupInProgress && !studentSignupInProgress) showSignedOut(); });
 }
 start();

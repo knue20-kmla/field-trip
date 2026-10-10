@@ -185,6 +185,7 @@ dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .staff-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
 .staff-item div { min-width: 0; }
 .staff-item span { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.list-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 #pdf-hint:empty { display: none; }
 #pdf-hint { margin-top: 8px; margin-bottom: 0; }
 
