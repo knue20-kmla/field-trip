@@ -42,15 +42,19 @@ let loaded = false;
 let unsubscribers = [];
 let selectedAdminKey = null;
 let currentFilter = "all";
-let pendingPhoto = null;
-const photoCache = new Map();
+const MIN_PHOTOS = 3, MAX_PHOTOS = 6;
+let photoList = [];            // 화면에서 편집 중인 활동 인증 사진 [{name, data}]
+let photosDirty = false;       // 사진을 추가하거나 삭제했는지
+let photoEditable = false;
+let photoLoadSeq = 0;
+const photoCache = new Map();  // 신청서 키 -> { at, list } (저장된 사진)
 let reportFilledKey = "";
 let busy = false;
 let chain = Promise.resolve();
 let teacherSignupInProgress = false;
 let studentSignupInProgress = false;
 
-const emptyReport = () => ({ submitted: false, timeMatch: "match", actualTime: "", changeReason: "", reportText: "", hasPhoto: false, photoName: "", submittedAt: "" });
+const emptyReport = () => ({ submitted: false, timeMatch: "match", actualTime: "", changeReason: "", reportText: "", hasPhoto: false, photoCount: 0, photoNames: [], photoName: "", submittedAt: "" });
 const keyOf = (r) => `${r.uid}/${r.id}`;
 
 /* ---------- 공통 도우미 ---------- */
@@ -262,7 +266,7 @@ function renderReportSelector() {
   const chosen = approved.find((r) => r.id === prev) ?? approved[0] ?? null;
   sel.value = chosen?.id ?? "";
   const key = `${chosen?.id ?? ""}|${chosen?.report?.submittedAt ?? ""}`;
-  if (key !== reportFilledKey) { reportFilledKey = key; pendingPhoto = null; fillReportForm(chosen); }
+  if (key !== reportFilledKey) { reportFilledKey = key; resetPhotoState(); fillReportForm(chosen); }
   setReportEnabled(Boolean(chosen), chosen);
 }
 function fillReportForm(rec) {
@@ -272,31 +276,47 @@ function fillReportForm(rec) {
   reportFields.reportText.value = r.reportText ?? "";
   reportFields.evidencePhoto.value = "";
   $$("input[name='time-match']").forEach((i) => { i.checked = i.value === (r.timeMatch ?? "match"); });
-  showPhoto(rec);
+  loadPhotoState(rec);
 }
-async function showPhoto(rec) {
-  const box = $("#photo-preview");
-  if (pendingPhoto) { renderPhotoBox(box, pendingPhoto); return; }
-  if (!rec || !rec.report?.hasPhoto) { box.hidden = true; box.innerHTML = ""; return; }
-  const photo = await loadPhoto(rec);
-  if (!pendingPhoto && reportFields.recordId.value === rec.id) renderPhotoBox(box, photo ?? { name: rec.report.photoName, data: "" });
-}
-function renderPhotoBox(box, p) {
-  if (!p) { box.hidden = true; return; }
-  box.hidden = false;
-  box.innerHTML = `${p.data ? `<img src="${p.data}" alt="첨부 사진 미리보기" />` : ""}<span>${escapeHtml(p.name || "첨부 사진")}</span>`;
-}
-async function loadPhoto(rec) {
-  const k = keyOf(rec);
-  if (photoCache.has(k)) return photoCache.get(k);
+function resetPhotoState() { photoList = []; photosDirty = false; photoLoadSeq++; }
+async function loadPhotos(rec) {
+  const k = keyOf(rec), at = rec.report?.submittedAt ?? "";
+  const hit = photoCache.get(k);
+  if (hit && hit.at === at) return hit.list;
+  const list = [];
   try {
-    const snap = await getDoc(doc(db, "photos", rec.id));
-    if (!snap.exists()) return null;
-    const v = { name: snap.data().name, data: snap.data().data };
-    photoCache.set(k, v);
-    return v;
-  } catch (e) { return null; }
+    const n = Number(rec.report?.photoCount ?? 0);
+    if (n > 0) {
+      const snaps = await Promise.all(Array.from({ length: Math.min(n, MAX_PHOTOS) }, (_, i) => getDoc(doc(db, "photos", rec.id, "items", String(i)))));
+      snaps.forEach((s) => { if (s.exists()) list.push({ name: s.data().name, data: s.data().data }); });
+    } else if (rec.report?.hasPhoto) {   // 예전 방식(사진 1장)
+      const s = await getDoc(doc(db, "photos", rec.id));
+      if (s.exists()) list.push({ name: s.data().name, data: s.data().data });
+    }
+  } catch (e) { return list; }
+  photoCache.set(k, { at, list });
+  return list;
 }
+async function loadPhotoState(rec) {
+  const seq = ++photoLoadSeq;
+  photoList = []; renderPhotoList();
+  if (!rec || !rec.report?.hasPhoto) return;
+  const list = await loadPhotos(rec);
+  if (seq === photoLoadSeq && !photosDirty) { photoList = list.map((p) => ({ ...p })); renderPhotoList(); }
+}
+function renderPhotoList() {
+  const box = $("#photo-preview");
+  const n = photoList.length, ok = n >= MIN_PHOTOS && n <= MAX_PHOTOS;
+  box.hidden = false;
+  box.innerHTML = `<p class="photo-count ${ok ? "ok" : ""}">${n}장 첨부됨 · ${MIN_PHOTOS}장 이상 ${MAX_PHOTOS}장 이하로 올려 주세요.</p>` +
+    (n ? `<div class="photo-grid-edit">${photoList.map((p, i) => `<figure><img src="${p.data}" alt="활동 사진 ${i + 1}"><figcaption>${i + 1}. ${escapeHtml(p.name)}</figcaption>${photoEditable ? `<button class="ghost-button" type="button" data-remove-photo="${i}">삭제</button>` : ""}</figure>`).join("")}</div>` : "");
+  $("#evidence-photo").disabled = !photoEditable || n >= MAX_PHOTOS;
+}
+async function deleteAllPhotos(appId) {
+  for (let i = 0; i < MAX_PHOTOS; i++) await deleteDoc(doc(db, "photos", appId, "items", String(i))).catch(() => {});
+  await deleteDoc(doc(db, "photos", appId)).catch(() => {});
+}
+
 function setReportEnabled(enabled, rec = null) {
   const lock = $("#report-lock");
   const rv = rec ? reviewOf(rec) : { status: "none", note: "" };
@@ -312,7 +332,9 @@ function setReportEnabled(enabled, rec = null) {
   lock.textContent = msg; lock.className = cls; lock.style.whiteSpace = "pre-wrap";
   $("#report-scroll").classList.toggle("form-disabled", !editable);
   $$("#report-form textarea, #report-form input[type='radio'], #report-form input[type='file'], #submit-report").forEach((n) => { n.disabled = !editable; });
-  $("#excel-report").disabled = !enabled;
+  const wasEditable = photoEditable; photoEditable = editable;
+  if (wasEditable !== editable) renderPhotoList();
+  $("#evidence-photo").disabled = !editable || photoList.length >= MAX_PHOTOS;
   $("#pdf-report").disabled = !approved;
   $("#pdf-report").title = approved ? "" : "담임 선생님이 결과보고서를 승인하면 저장할 수 있습니다";
   reportFields.recordId.disabled = !myRecs().some(isApproved);
@@ -353,8 +375,8 @@ async function deleteApplication() {
   }
   btn.dataset.confirm = ""; btn.textContent = "신청서 삭제";
   await guarded(btn, async () => {
+    await deleteAllPhotos(rec.id);
     await deleteDoc(doc(db, "applications", rec.id));
-    try { await deleteDoc(doc(db, "photos", rec.id)); } catch {}
     $("#application-form").reset(); fillApplicationForm(null);
     toast("신청서를 삭제했습니다.");
   });
@@ -379,20 +401,26 @@ async function submitReport(event) {
   event.preventDefault();
   const rec = findRec(myUid, reportFields.recordId.value);
   if (!rec || !isApproved(rec)) return toast("담당자 결재 완료 후 결과보고서를 제출할 수 있습니다.");
-  if (!pendingPhoto && !rec.report?.hasPhoto) return toast("활동 인증 사진 1장을 첨부하세요.");
+  if (photoList.length < MIN_PHOTOS) return toast(`활동 인증 사진을 ${MIN_PHOTOS}장 이상 첨부하세요. (현재 ${photoList.length}장)`);
+  if (photoList.length > MAX_PHOTOS) return toast(`활동 인증 사진은 ${MAX_PHOTOS}장까지 첨부할 수 있습니다.`);
   const report = {
     submitted: true, timeMatch: $("input[name='time-match']:checked").value,
     actualTime: reportFields.actualTime.value.trim(), changeReason: reportFields.changeReason.value.trim(),
     reportText: reportFields.reportText.value.trim(), hasPhoto: true,
-    photoName: pendingPhoto?.name ?? rec.report.photoName, submittedAt: new Date().toISOString(),
+    photoCount: photoList.length, photoNames: photoList.map((p) => p.name), photoName: photoList[0].name,
+    submittedAt: new Date().toISOString(),
   };
   await guarded($("#submit-report"), async () => {
-    if (pendingPhoto) {
-      await setDoc(doc(db, "photos", rec.id), { ownerUid: myUid, name: pendingPhoto.name, data: pendingPhoto.data });
-      photoCache.set(keyOf(rec), pendingPhoto);
-      pendingPhoto = null;
+    const oldCount = Number(rec.report?.photoCount ?? 0);
+    if (photosDirty || oldCount !== photoList.length) {
+      for (let i = 0; i < photoList.length; i++) {
+        await setDoc(doc(db, "photos", rec.id, "items", String(i)), { ownerUid: myUid, name: photoList[i].name, data: photoList[i].data });
+      }
+      for (let i = photoList.length; i < oldCount; i++) await deleteDoc(doc(db, "photos", rec.id, "items", String(i))).catch(() => {});
+      if (rec.report?.hasPhoto && !oldCount) await deleteDoc(doc(db, "photos", rec.id)).catch(() => {});   // 예전 1장 방식 정리
     }
     await updateDoc(doc(db, "applications", rec.id), { report, updatedAt: serverTimestamp() });
+    photoCache.delete(keyOf(rec)); photosDirty = false;
     toast("결과보고서를 제출했습니다.");
   });
 }
@@ -530,7 +558,7 @@ async function deleteRejectedRecord() {
   btn.dataset.confirm = ""; btn.textContent = "반려 신청서 삭제";
   await guarded(btn, async () => {
     // 규칙이 신청서와 결재 기록을 확인하므로 사진 → 신청서 → 결재 기록 순서로 지운다.
-    await deleteDoc(doc(db, "photos", rec.id)).catch(() => {});
+    await deleteAllPhotos(rec.id);
     await deleteDoc(doc(db, "applications", rec.id));
     await deleteDoc(doc(db, "approvals", rec.id)).catch(() => {});
     await deleteDoc(doc(db, "reportReviews", rec.id)).catch(() => {});
@@ -577,7 +605,15 @@ function applicationHtml(app) {
     <tr><th>학습계획</th><td class="print-large" colspan="7">${escapeHtml(dailyPlansText(app.dailyPlans ?? []))}</td></tr>
     <tr><th>확인</th><td colspan="7">${sign}</td></tr></table></article>`;
 }
-function reportHtml(app, report, photo) {
+function photoGridHtml(photos) {
+  if (!photos?.length) return "";
+  const cells = photos.map((p, i) => `<td><div class="photo-box"><img src="${p.data}" alt="활동 인증 사진 ${i + 1}"></div><div class="photo-cap">사진 ${i + 1}</div></td>`);
+  while (cells.length % 3) cells.push("<td></td>");
+  const rows = [];
+  for (let i = 0; i < cells.length; i += 3) rows.push(`<tr>${cells.slice(i, i + 3).join("")}</tr>`);
+  return `<table class="photo-grid">${rows.join("")}</table>`;
+}
+function reportHtml(app, report, photos = []) {
   const s = dateParts(app.startAt), e = dateParts(app.endAt);
   const sign = `${new Date().getFullYear()}년&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;일&nbsp;&nbsp;&nbsp;&nbsp;어드바이저/지도교사 : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)`;
   return `<article class="print-form">${paperHead()}<h1>교외체험학습 결과 보고서</h1><table>
@@ -589,7 +625,7 @@ function reportHtml(app, report, photo) {
     <tr><th>실제 활동 시간</th><td colspan="7">${escapeHtml(report.actualTime)}</td></tr>
     <tr><th>변동 이유</th><td colspan="7">${escapeHtml(report.changeReason)}</td></tr>
     <tr><th>체험학습 결과보고란</th><td class="print-large" colspan="7">${escapeHtml(report.reportText)}</td></tr>
-    <tr><th>활동인증 사진</th><td colspan="7">${photo?.data ? `<img src="${photo.data}" alt="활동 인증 사진" style="max-width:220px;max-height:170px;display:block;margin-bottom:6px;">` : ""}${escapeHtml(photo?.name || report.photoName)}</td></tr>
+    <tr><th>활동인증 사진</th><td colspan="7">${photoGridHtml(photos)}</td></tr>
     <tr><th>확인</th><td colspan="7">${sign}</td></tr></table></article>`;
 }
 async function htmlToPdf(html) {
@@ -597,52 +633,39 @@ async function htmlToPdf(html) {
   host.innerHTML = html;
   if (document.fonts?.ready) await document.fonts.ready;
   await Promise.all(Array.from(host.querySelectorAll("img")).map((i) => i.complete ? 0 : new Promise((r) => { i.onload = i.onerror = r; })));
-  const canvas = await html2canvas(host, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+  const scale = 2;
+  // 쪽을 나눌 때 표의 행이 잘리지 않도록 각 행의 아래쪽 위치를 기록해 둔다.
+  const hostTop = host.getBoundingClientRect().top;
+  const breaks = Array.from(host.querySelectorAll("tr, .paper-head, h1"))
+    .map((el) => Math.round((el.getBoundingClientRect().bottom - hostTop) * scale)).sort((a, b) => a - b);
+  const canvas = await html2canvas(host, { scale, backgroundColor: "#ffffff", useCORS: true });
   host.innerHTML = "";
   const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4" });
   const margin = 10, w = 210 - margin * 2, pageH = 297 - margin * 2;
   const sliceH = Math.floor(pageH * canvas.width / w);
-  for (let y = 0, page = 0; y < canvas.height; y += sliceH, page++) {
-    const h = Math.min(sliceH, canvas.height - y);
+  let y = 0, page = 0;
+  while (y < canvas.height) {
+    let end = Math.min(y + sliceH, canvas.height);
+    if (end < canvas.height) {
+      const fit = breaks.filter((b) => b > y + sliceH * 0.4 && b <= end);
+      if (fit.length) end = fit[fit.length - 1];
+    }
+    const h = end - y;
     const part = document.createElement("canvas");
     part.width = canvas.width; part.height = h;
     part.getContext("2d").drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
     if (page) pdf.addPage();
     pdf.addImage(part.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, w, h * w / canvas.width);
+    y = end; page++;
   }
   return pdf.output("arraybuffer");
 }
 
 /* ---------- 엑셀 ---------- */
-function sheetFromRows(rows, widths) {
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = widths.map((wch) => ({ wch }));
-  ws["!merges"] = rows.flatMap((r, i) => r.length === 1 ? [{ s: { r: i, c: 0 }, e: { r: i, c: 3 } }] : r.length === 2 ? [{ s: { r: i, c: 1 }, e: { r: i, c: 3 } }] : []);
-  return ws;
-}
 function workbookBuffer(sheetName, ws) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   return XLSX.write(wb, { bookType: "xlsx", type: "array" });
-}
-function applicationRows(a) {
-  return [["교외체험학습 신청서"], [],
-    ["이름", a.name, "학번", a.studentId],
-    ["학년/반/번호", `${a.grade}학년 ${a.classroom}반 ${a.number}번`, "학습 형태", a.learningType],
-    ["시작 일시", fmtDateTime(a.startAt)], ["종료 일시", fmtDateTime(a.endAt)], ["학교출발시각", fmtDateTime(a.leaveAt)],
-    ["주제", a.subject], ["활동 장소", a.place],
-    ["동행자명", a.companionName, "관계", a.relationship],
-    ["학생 연락처", a.studentPhone, "동행자 연락처", a.companionPhone],
-    ["방문처", a.visitContact], ["비고", a.note], [],
-    ["날짜별 학습계획"], ...(a.dailyPlans ?? []).map((p) => [fmtDate(p.date), p.plan])];
-}
-function reportRows(a, r) {
-  return [["교외체험학습 결과 보고서"], [],
-    ["이름", a.name, "학번", a.studentId],
-    ["학년/반/번호", `${a.grade}학년 ${a.classroom}반 ${a.number}번`],
-    ["신청 일시", `${fmtDateTime(a.startAt)} ~ ${fmtDateTime(a.endAt)}`],
-    ["신청서와 일시", r.timeMatch === "different" ? "일치하지 않습니다." : "일치합니다."],
-    ["실제 활동 시간", r.actualTime], ["변동 이유", r.changeReason], ["결과보고", r.reportText], ["증빙 사진", r.photoName]];
 }
 function listRows() {
   const head = ["이름", "학번", "학년", "반", "번호", "학습 형태", "시작", "종료", "장소", "주제", "동행자", "관계", "결재 상태", "결재 완료 단계", "보고서 제출", "보고서 제출일"];
@@ -684,34 +707,22 @@ bindExport($("#pdf-application"), async () => {
   if (!rec || !isApproved(rec)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
   return { name: `신청서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(rec.application)) };
 });
-bindExport($("#excel-application"), async () => { const a = getApplicationFromForm(); return { name: `신청서_${safeName(a.name)}_${dateTag()}.xlsx`, data: workbookBuffer("신청서", sheetFromRows(applicationRows(a), [16, 36, 16, 30])) }; });
 bindExport($("#pdf-report"), async () => {
   const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
   if (reviewOf(rec).status !== "approved") { toast("담임 선생님이 결과보고서를 승인한 뒤에 PDF로 저장할 수 있습니다."); return null; }
-  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(rec.application, rec.report, await loadPhoto(rec))) };
-});
-bindExport($("#excel-report"), async () => {
-  const rec = findRec(myUid, reportFields.recordId.value); if (!rec) return null;
-  const r = reportFromForm(rec);
-  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.xlsx`, data: workbookBuffer("결과보고서", sheetFromRows(reportRows(rec.application, { ...r, photoName: pendingPhoto?.name ?? r.photoName }), [16, 36, 16, 30])) };
+  return { name: `결과보고서_${safeName(rec.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(rec.application, rec.report, await loadPhotos(rec))) };
 });
 bindExport($("#pdf-selected-app"), async () => {
   const r = selectedAdminRec(); if (!r) return null;
   if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
   return { name: `신청서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(applicationHtml(r.application)) };
 });
-bindExport($("#excel-selected-app"), async () => { const r = selectedAdminRec(); return r && { name: `신청서_${safeName(r.application.name)}_${dateTag()}.xlsx`, data: workbookBuffer("신청서", sheetFromRows(applicationRows(r.application), [16, 36, 16, 30])) }; });
 bindExport($("#pdf-selected-report"), async () => {
   const r = selectedAdminRec(); if (!r) return null;
   if (!isApproved(r)) { toast("최종 결재가 끝난 뒤에 PDF로 저장할 수 있습니다."); return null; }
   if (!r.report?.submitted) { toast("아직 결과보고서가 제출되지 않았습니다."); return null; }
   if (reviewOf(r).status !== "approved") { toast("결과보고서를 승인한 뒤에 PDF로 저장할 수 있습니다."); return null; }
-  return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(r.application, r.report, await loadPhoto(r))) };
-});
-bindExport($("#excel-selected-report"), async () => {
-  const r = selectedAdminRec(); if (!r) return null;
-  if (!r.report?.submitted) { toast("아직 결과보고서가 제출되지 않았습니다."); return null; }
-  return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.xlsx`, data: workbookBuffer("결과보고서", sheetFromRows(reportRows(r.application, r.report), [16, 36, 16, 30])) };
+  return { name: `결과보고서_${safeName(r.application.name)}_${dateTag()}.pdf`, data: await htmlToPdf(reportHtml(r.application, r.report, await loadPhotos(r))) };
 });
 bindExport($("#export-all"), async () => {
   const ws = XLSX.utils.aoa_to_sheet(listRows());
@@ -745,10 +756,21 @@ $("#delete-application").addEventListener("click", deleteApplication);
 $("#my-record").addEventListener("change", (e) => { fillApplicationForm(e.target.value ? findRec(myUid, e.target.value) : null); });
 reportFields.recordId.addEventListener("change", () => { reportFilledKey = ""; renderReportSelector(); });
 reportFields.evidencePhoto.addEventListener("change", async () => {
-  const file = reportFields.evidencePhoto.files[0];
-  if (!file) return;
-  try { pendingPhoto = await resizePhoto(file); renderPhotoBox($("#photo-preview"), pendingPhoto); }
-  catch { toast("사진을 읽지 못했습니다. 다른 사진을 선택하세요."); }
+  const files = Array.from(reportFields.evidencePhoto.files);
+  reportFields.evidencePhoto.value = "";
+  if (!files.length) return;
+  const room = Math.max(MAX_PHOTOS - photoList.length, 0);
+  if (files.length > room) toast(`사진은 최대 ${MAX_PHOTOS}장까지 올릴 수 있습니다. 앞의 ${room}장만 추가합니다.`);
+  let failed = 0;
+  for (const file of files.slice(0, room)) {
+    try { photoList.push(await resizePhoto(file)); photosDirty = true; } catch { failed++; }
+  }
+  if (failed) toast(`사진 ${failed}장을 읽지 못했습니다. 다른 사진을 선택하세요.`);
+  renderPhotoList();
+});
+$("#photo-preview").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-remove-photo]"); if (!b) return;
+  photoList.splice(Number(b.dataset.removePhoto), 1); photosDirty = true; renderPhotoList();
 });
 function openPreview(title, html) {
   $("#preview-title").textContent = title;
@@ -763,7 +785,7 @@ $("#preview-app").addEventListener("click", () => {
 $("#preview-report").addEventListener("click", async () => {
   const r = selectedAdminRec(); if (!r) return;
   if (!r.report?.submitted) return toast("아직 결과보고서가 제출되지 않았습니다.");
-  openPreview(`${r.application.name || ""} 결과보고서 미리보기`, reportHtml(r.application, r.report, await loadPhoto(r)));
+  openPreview(`${r.application.name || ""} 결과보고서 미리보기`, reportHtml(r.application, r.report, await loadPhotos(r)));
 });
 $("#preview-close").addEventListener("click", () => { $("#preview-modal").hidden = true; });
 $("#preview-modal").addEventListener("click", (e) => { if (e.target.id === "preview-modal") $("#preview-modal").hidden = true; });
@@ -1031,7 +1053,7 @@ async function deleteStudentRecords(uid, button) {
     for (const r of targets) {
       await deleteDoc(doc(db, "approvals", r.id)).catch(() => {});
       await deleteDoc(doc(db, "reportReviews", r.id)).catch(() => {});
-      await deleteDoc(doc(db, "photos", r.id)).catch(() => {});
+      await deleteAllPhotos(r.id);
       await deleteDoc(doc(db, "applications", r.id));
       photoCache.delete(keyOf(r));
     }

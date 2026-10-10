@@ -169,7 +169,6 @@
         <div class="form-actions">
           <button class="primary-button" id="submit-application" type="submit">신청서 제출</button>
           <button class="secondary-button" id="pdf-application" type="button">신청서 PDF 저장</button>
-          <button class="secondary-button" id="excel-application" type="button">신청서 엑셀 저장</button>
           <button class="ghost-button" id="new-application" type="button">새 신청</button>
           <button class="ghost-button" id="delete-application" type="button">신청서 삭제</button>
         </div>
@@ -203,7 +202,8 @@
               <tr>
                 <th>활동인증 / 사진(첨부)</th>
                 <td colspan="10">
-                  <input id="evidence-photo" type="file" accept="image/*" />
+                  <p class="cell-note">활동 모습을 알 수 있는 사진을 <strong>3장 이상 6장 이하</strong>로 올려 주세요. 한 번에 여러 장을 고를 수 있고, 잘못 올린 사진은 삭제할 수 있습니다.</p>
+                  <input id="evidence-photo" type="file" accept="image/*" multiple />
                   <div id="photo-preview" class="photo-preview" hidden></div>
                 </td>
               </tr>
@@ -213,7 +213,6 @@
         <div class="form-actions">
           <button class="primary-button" id="submit-report" type="submit">결과보고서 제출</button>
           <button class="secondary-button" id="pdf-report" type="button">결과보고서 PDF 저장</button>
-          <button class="secondary-button" id="excel-report" type="button">결과보고서 엑셀 저장</button>
         </div>
       </form>
   </section>
@@ -269,9 +268,7 @@
             <button class="secondary-button" id="preview-app" type="button">신청서 미리보기</button>
             <button class="secondary-button" id="preview-report" type="button">결과보고서 미리보기</button>
             <button class="secondary-button" id="pdf-selected-app" type="button">신청서 PDF</button>
-            <button class="secondary-button" id="excel-selected-app" type="button">신청서 엑셀</button>
             <button class="secondary-button" id="pdf-selected-report" type="button">결과보고서 PDF</button>
-            <button class="secondary-button" id="excel-selected-report" type="button">결과보고서 엑셀</button>
           </div>
           <p class="cell-note" id="pdf-hint"></p>
         </div>

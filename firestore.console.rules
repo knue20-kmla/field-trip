@@ -204,6 +204,23 @@ service cloud.firestore {
         || (isHomeroomTeacher() && resource.data.homeroomKey == myStaff().homeroomKey);
     }
 
+    // ---- 결과보고서 활동 인증 사진(여러 장): photos/{신청서ID}/items/{0~5} ----
+    match /photos/{appId}/items/{idx} {
+      allow read: if isOwner(resource.data) || (isStaff() && canReadApplicationId(appId));
+      allow create, update: if isStudent()
+        && idx in ['0', '1', '2', '3', '4', '5']
+        && request.resource.data.keys().hasOnly(['ownerUid', 'name', 'data'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.data.size() < 400000
+        && exists(/databases/$(database)/documents/applications/$(appId))
+        && get(/databases/$(database)/documents/applications/$(appId)).data.ownerUid == request.auth.uid
+        && !reportApproved(appId, get(/databases/$(database)/documents/applications/$(appId)).data.report.submittedAt);
+      allow delete: if isManager()
+        || (isOwner(resource.data) && (!exists(/databases/$(database)/documents/applications/$(appId)) || !reportApproved(appId, get(/databases/$(database)/documents/applications/$(appId)).data.report.submittedAt)))
+        || (isHomeroomTeacher() && canReadApplicationId(appId) && isRejected(appId));
+    }
+
+    // (예전 방식: 사진 1장) photos/{신청서ID}
     match /photos/{appId} {
       allow read: if isOwner(resource.data) || (isStaff() && canReadApplicationId(appId));
       allow create, update: if isStudent()

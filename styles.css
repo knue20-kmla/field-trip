@@ -254,3 +254,19 @@ dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .logo-disc { width: 48px; height: 48px; }
   .logo-lg { width: 88px; height: 88px; }
 }
+
+/* 활동 인증 사진 (입력 화면) */
+.photo-count { font-size: 13px; font-weight: 700; color: var(--warn); margin-bottom: 8px; }
+.photo-count.ok { color: var(--ok); }
+.photo-grid-edit { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.photo-grid-edit figure { margin: 0; display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.photo-grid-edit img { width: 100%; height: 110px; object-fit: cover; border-radius: 5px; margin: 0; }
+.photo-grid-edit figcaption { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.photo-grid-edit button { min-height: 32px; }
+
+/* 활동 인증 사진 (결과보고서 서식): 한 줄에 3장, 같은 크기의 칸 */
+.print-form .photo-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.print-form .photo-grid td { border: 0; padding: 4px; text-align: center; vertical-align: top; }
+.photo-box { height: 168px; line-height: 168px; border: 1px solid #888; background: #fff; text-align: center; overflow: hidden; }
+.photo-box img { max-width: 100%; max-height: 164px; vertical-align: middle; }
+.photo-cap { font-size: 11px; color: #333; margin-top: 3px; line-height: 1.3; }
