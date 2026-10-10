@@ -964,13 +964,23 @@ async function enterApp(user) {
     }),
   );
   if (myStaff?.canManage) {
-    unsubscribers.push(watch(collection(db, "staff"), (snap) => {
+    $("#staff-list").innerHTML = `<div class="empty-state">교직원 목록을 불러오는 중입니다.</div>`;
+    $("#student-list").innerHTML = `<div class="empty-state">학생 목록을 불러오는 중입니다.</div>`;
+    unsubscribers.push(onSnapshot(collection(db, "staff"), (snap) => {
       staffList = snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => a.step - b.step || String(a.name).localeCompare(String(b.name), "ko"));
       renderStaffList();
+    }, (e) => {
+      console.error(e);
+      $("#staff-list").innerHTML = `<div class="empty-state">교직원 목록을 불러오지 못했습니다. Firestore 규칙을 확인하세요.</div>`;
+      showBanner("교직원 목록을 불러오지 못했습니다. Firestore 규칙을 확인하세요.");
     }));
-    unsubscribers.push(watch(collection(db, "students"), (snap) => {
+    unsubscribers.push(onSnapshot(collection(db, "students"), (snap) => {
       studentList = snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => String(a.grade ?? "").localeCompare(String(b.grade ?? ""), "ko", { numeric: true }) || String(a.classroom ?? "").localeCompare(String(b.classroom ?? ""), "ko", { numeric: true }) || String(a.name ?? "").localeCompare(String(b.name ?? ""), "ko"));
       renderStudentList();
+    }, (e) => {
+      console.error(e);
+      $("#student-list").innerHTML = `<div class="empty-state">학생 목록을 불러오지 못했습니다. Firestore 규칙에서 students 목록 권한을 확인하세요.</div>`;
+      showBanner("학생 목록을 불러오지 못했습니다. Firestore 규칙에서 students 목록 권한을 확인하세요.");
     }));
   }
   fillApplicationForm(null);
